@@ -118,7 +118,7 @@ Current workstation findings (2026-09-04):
 - Git is installed.
 - .NET runtimes 6.0, 8.0, 9.0, and 10.0.10 are installed.
 - No .NET SDK is currently installed.
-- Visual Studio 2026 (v18) is installed.
+- Visual Studio Community 2022 (17.14) and Build Tools 2022 are installed.
 - Windows SDK 10.0.26100 is present.
 - Latest stable Windows App SDK is 2.4.0; pin it at scaffolding.
 

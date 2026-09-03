@@ -4,18 +4,19 @@ Branch naming: `feat/<area>`, `fix/<area>`, `docs/<area>`. Every milestone ends 
 
 ## Phase A - MVP
 
-### M0 Foundation (done, this repository state)
-- Product docs, `_docs/`, `CLAUDE.md`, GPL-3.0 licence, ADRs 0001-0003.
+### M0 Foundation (done)
+- Product docs, `_docs/`, `CLAUDE.md`, GPL-3.0 licence, ADRs 0001-0003. Commit `6ac2a3f`.
 
-### M1 GSMTC capability spike - `feat/foundation`
-1. Install the .NET 10 SDK; verify `dotnet --version` and the VS 2026 WinUI templates (`09-dev-environment.md`).
-2. `dotnet new` solution; `Directory.Build.props`, `Directory.Packages.props` pinning Windows App SDK 2.4.0.
-3. `WinDots.Core` with the contracts and records from `05-architecture.md` (no logic yet).
-4. `WinDots.Windows/Media/GsmtcSessionProvider` and `GsmtcSession`.
-5. `WinDots.App` packaged skeleton with `globalMediaControl`; a debug page listing sessions, snapshot JSON, artwork thumbnail, and command buttons.
-6. `WinDots.TestPlayer`.
-7. Fill the first rows of the compatibility matrix for three real players.
-- **Exit**: two independent players discovered and controlled; session churn survives; unsupported commands fail safely; one commit per step.
+### M1 GSMTC capability spike - `feat/foundation` (in progress)
+1. Done: .NET SDK 10.0.400 installed and pinned in `global.json`.
+2. Done: `WinDots.sln`, `Directory.Build.props`, `Directory.Packages.props` pinning Windows App SDK 2.4.0. Commit `bc82a83`.
+3. Done: `WinDots.Core` contracts and records, plus `TimelineInterpolator` and `TimeFormat` with 16 unit tests. Commit `bc82a83`.
+4. Done: `WinDots.Windows/Media/GsmtcSessionProvider` and `GsmtcSession`. Commit `bc82a83`.
+5. Done: `WinDots.App` packaged with `globalMediaControl`; `Diagnostics/SessionInspectorWindow` lists sessions, shows snapshot JSON and artwork, sends commands. Verified live on 2026-09-04: two sessions discovered (Chrome playing YouTube, a stale PowerToys Peek session), system-current detection correct, buttons gated by capabilities. Commit `c9dc119`.
+6. To do: `tests/WinDots.TestPlayer` (controllable SMTC publisher).
+7. To do: fill the compatibility matrix for Spotify, YouTube Music in Edge, and VLC; exercise play/pause, next, previous, seek on each.
+- **Exit**: two independent players discovered and controlled; session churn survives; unsupported commands fail safely.
+- Known quirk: apps that once used SMTC (PowerToys Peek) can leave an empty paused session behind. The coordinator (M3) must score such sessions at the bottom; `HasMetadata == false` is the signal.
 
 ### M2 Drawer interaction - `feat/drawer-gesture`
 1. `DrawerController`, `VelocityTracker` in Core with tests.

@@ -67,7 +67,7 @@ Individual capabilities vary by player. WinDots will only enable commands that a
 
 ## Repository status
 
-The repository currently contains the approved product and implementation plan plus the detailed specifications in `_docs/`. Application scaffolding begins with Milestone 1 in `_docs/08-roadmap.md`.
+The repository contains the product plan, the detailed specifications in `_docs/`, and the Milestone 1 scaffolding: the solution, Core contracts and media model, the Windows media-session adapter, a packaged WinUI app with a session-inspector spike, and unit tests. Build and run instructions are in `_docs/09-dev-environment.md`; progress is tracked in `_docs/08-roadmap.md`.
 
 ## Development principles
 

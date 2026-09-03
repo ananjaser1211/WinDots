@@ -35,6 +35,7 @@ Record results per release in this table (copy and fill).
 | Spotify for Windows | | | | | | | | | |
 | YouTube Music (Edge) | | | | | | | | | |
 | YouTube Music (Chrome) | | | | | | | | | |
+| YouTube video (Chrome), 2026-09-04 inspector | yes | title + channel as artist | not yet checked | advertised | advertised | advertised | not advertised | n/a (M5) | Stale PowerToys Peek session also listed |
 | YouTube Music desktop client | | | | | | | | | |
 | VLC | | | | | | | | | |
 | Windows Media Player | | | | | | | | | |
