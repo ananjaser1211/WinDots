@@ -1,5 +1,7 @@
 # WinDots implementation plan
 
+This is the top-level plan. Build-ready detail (reference study, product spec by phase, interaction and visual specs, architecture, settings, tests, roadmap, ADRs) lives in [`_docs/`](./_docs/README.md).
+
 ## 1. Objective
 
 Build a polished, native Windows media drawer that can be pulled down from the top-center of the screen and can control any compatible Windows media session. The product should reproduce the qualities that make Caelestia's player compelling—immediacy, fluid motion, rich artwork, dynamic colour, multiple-player awareness, and a desktop-shell feeling—without porting the Linux shell or depending on WSL.
@@ -111,15 +113,16 @@ The implementation may be inspired by Caelestia's interaction and visual languag
 
 ### 4.3 Development prerequisites
 
-Current workstation findings:
+Current workstation findings (2026-09-04):
 
 - Git is installed.
-- .NET runtimes through 10.0 are installed.
+- .NET runtimes 6.0, 8.0, 9.0, and 10.0.10 are installed.
 - No .NET SDK is currently installed.
-- Visual Studio Community 2022 and Build Tools are installed.
+- Visual Studio 2026 (v18) is installed.
 - Windows SDK 10.0.26100 is present.
+- Latest stable Windows App SDK is 2.4.0; pin it at scaffolding.
 
-Before scaffolding, install the .NET 10 SDK and verify the WinUI/Windows App SDK build workload. Keep acquisition changes outside source control and document the exact versions in the repository.
+Before scaffolding, install the .NET 10 SDK and verify the WinUI/Windows App SDK build workload. Exact steps and pinned versions are in `_docs/09-dev-environment.md`.
 
 ## 5. Architecture
 
@@ -135,10 +138,10 @@ tests/
   WinDots.Core.Tests/          Deterministic unit tests
   WinDots.Windows.Tests/       Platform integration tests where practical
   WinDots.TestPlayer/          Controlled fake media publisher for manual/integration QA
-docs/
+_docs/
   decisions/                   Architecture decision records
-  test-matrix.md               Player and environment compatibility results
-  privacy.md                   Data storage and integration behaviour
+  07-testing-and-compatibility.md   Player and environment compatibility results
+  (privacy.md to be added at Milestone 6)
 ```
 
 Keep the core domain free of WinUI types. Platform APIs are adapted into testable interfaces.
@@ -534,14 +537,14 @@ Do not introduce arbitrary in-process plugins during the MVP. First stabilize in
 - Keep commits atomic and explain non-obvious design decisions.
 - Run relevant build and tests before committing.
 - Do not commit `bin/`, `obj/`, package output, local databases, logs, credentials, certificates, or user-specific IDE state.
-- Record meaningful architecture choices in `docs/decisions/`.
+- Record meaningful architecture choices in `_docs/decisions/`.
 - Tag releases using semantic versioning after the first distributable build.
 - Maintain release notes from committed changes.
 - Do not add a Git remote or publish artifacts without explicit authorization.
 
 ## 14. Initial execution order
 
-1. Select the project licence.
+1. Select the project licence. Done: GPL-3.0-or-later (`_docs/decisions/0001-license-gpl3.md`).
 2. Install and verify the .NET 10 SDK and WinUI workload.
 3. Scaffold the solution and tests on `feat/foundation`.
 4. Build the packaged GSMTC capability spike.

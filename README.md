@@ -67,7 +67,7 @@ Individual capabilities vary by player. WinDots will only enable commands that a
 
 ## Repository status
 
-The repository currently contains the approved product and implementation plan. Application scaffolding begins with the capability-spike milestone described in `IMPLEMENTATION.md`.
+The repository currently contains the approved product and implementation plan plus the detailed specifications in `_docs/`. Application scaffolding begins with Milestone 1 in `_docs/08-roadmap.md`.
 
 ## Development principles
 
@@ -79,6 +79,10 @@ The repository currently contains the approved product and implementation plan. 
 - Accessible interaction and reduced-motion support from the beginning.
 - Atomic, tested Git commits with no secrets or generated artifacts.
 
+## Documentation
+
+Detailed specifications live in [`_docs/`](./_docs/README.md): reference study of the Caelestia screenshots, product spec by phase, interaction and visual specs, architecture, settings schema, testing matrix, roadmap, development environment, and architecture decision records.
+
 ## License
 
-The project license has not yet been selected. Caelestia is a visual and interaction reference only. Do not copy Caelestia source code, assets, icons, or other GPL-covered implementation into WinDots unless the project explicitly adopts a compatible licence and the change is documented.
+WinDots is licensed under GPL-3.0-or-later (see [LICENSE](./LICENSE) and [ADR 0001](./_docs/decisions/0001-license-gpl3.md)). Caelestia is a visual and interaction reference only; its source code, assets, icons, and shaders are not copied into WinDots.
