@@ -6,10 +6,18 @@
     <RootNamespace>WinDots.Windows</RootNamespace>
     <Description>Windows platform adapters for WinDots: media sessions, Core Audio, monitors, windowing.</Description>
     <Platforms>x64;ARM64</Platforms>
+    <!-- CsWin32 emits pointer-typed callbacks (MONITORENUMPROC) and inline-array structs (MONITORINFOEXW). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\WinDots.Core\WinDots.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Windows.CsWin32">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
   </ItemGroup>
 
 </Project>
