@@ -48,7 +48,13 @@ dotnet test tests/WinDots.Core.Tests --filter "FullyQualifiedName~TimelineInterp
 dotnet format --verify-no-changes
 ```
 
-`tests/WinDots.Windows.Tests` (platform tests) and `tests/WinDots.TestPlayer` are not scaffolded yet; see the roadmap.
+Platform tests need an interactive desktop and launch the fake player themselves:
+
+```powershell
+dotnet test tests/WinDots.Windows.Tests -p:Platform=x64
+```
+
+To drive a real player by hand, run `tests/WinDots.TestPlayer/bin/x64/Debug/net10.0-windows10.0.26100.0/WinDots.TestPlayer.exe` and type `play`, `pause`, `next`, `prev`, `seek 30`, `title Foo`, or `quit`. The real-player probe is described in `07-testing-and-compatibility.md`.
 
 Run the packaged app from the CLI after a build (Developer Mode must be on; the build output is a loose layout, registered in place):
 

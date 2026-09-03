@@ -18,29 +18,48 @@ Run one: `dotnet test tests/WinDots.Core.Tests --filter "FullyQualifiedName~Draw
 
 ## Platform tests (`tests/WinDots.Windows.Tests`, `Category=Platform`)
 
-Require an interactive desktop and the `WinDots.TestPlayer` app running.
+Require an interactive desktop. The test host launches `WinDots.TestPlayer.exe` (built alongside the tests) itself.
 
-- GSMTC provider sees the test player appear, updates metadata, and sees it disappear.
-- Commands: play/pause round trip; seek accepted; unsupported command returns `CommandResult.Unsupported`.
-- Artwork: oversized image is downscaled; truncated stream returns `ArtworkResult.Failed` without throwing.
-- Core Audio: the test player's session matches `High`; a second instance drops to `Medium`; unknown AUMID yields `None`.
-- Monitor service: enumerates at least one monitor with a non-zero work area.
+```powershell
+dotnet test tests/WinDots.Windows.Tests -p:Platform=x64
+```
 
-## Manual compatibility matrix
+Implemented in `GsmtcSessionProviderTests`:
 
-Record results per release in this table (copy and fill).
+- The provider sees the test player appear with title, artist, album, duration, capabilities, and an artwork key.
+- Artwork loads; an undersized byte limit yields `ArtworkResult.Failed` without throwing.
+- Next, play/pause, seek, shuffle, and repeat round-trip: the command is accepted, the player logs the request, and the new state flows back into the snapshot.
+- Quitting the player removes the session; a command on the vanished session is rejected, not thrown.
 
-| Player | Discovered | Metadata | Artwork | Play/Pause | Prev/Next | Seek | Shuffle/Repeat | Volume match | Notes |
-|---|---|---|---|---|---|---|---|---|---|
-| Spotify for Windows | | | | | | | | | |
-| YouTube Music (Edge) | | | | | | | | | |
-| YouTube Music (Chrome) | | | | | | | | | |
-| YouTube video (Chrome), 2026-09-04 inspector | yes | title + channel as artist | not yet checked | advertised | advertised | advertised | not advertised | n/a (M5) | Stale PowerToys Peek session also listed |
-| YouTube Music desktop client | | | | | | | | | |
-| VLC | | | | | | | | | |
-| Windows Media Player | | | | | | | | | |
-| Firefox (any site) | | | | | | | | | |
-| WinDots.TestPlayer | | | | | | | | | |
+Planned: Core Audio matching tiers (M5) and monitor enumeration (M2).
+
+### Real-player probe
+
+`RealPlayerProbe` drives any running player and prints its snapshot, artwork result, and command outcomes:
+
+```powershell
+$env:WINDOTS_PROBE_APP = "Chrome"     # substring of the player's AUMID; see the Sessions line in the output
+dotnet test tests/WinDots.Windows.Tests -p:Platform=x64 --filter "FullyQualifiedName~RealPlayerProbe" --logger "console;verbosity=detailed"
+```
+
+It toggles play/pause twice and seeks five seconds forward, so expect the player to react.
+
+## Compatibility matrix
+
+Columns record what the session advertised and what the probe confirmed. "n/a" means not yet implemented in WinDots.
+
+| Player | Date | Discovered | Metadata | Artwork | Play/Pause | Prev/Next | Seek | Shuffle/Repeat | Volume match | Notes |
+|---|---|---|---|---|---|---|---|---|---|---|
+| WinDots.TestPlayer | 2026-09-04 | yes | title, artist, album, track no. | BMP, loads | confirmed | confirmed | confirmed | confirmed | n/a | Automated in `GsmtcSessionProviderTests` |
+| YouTube video (Chrome 2026) | 2026-09-04 | yes, AUMID `Chrome` | title; channel absent; album null | PNG 12 KB | confirmed | not advertised for a single video | confirmed at target | not advertised | n/a | Reports `PlaybackRate` 0 even while playing; interpolator treats rate <= 0 as 1 |
+| Windows Media Player (ZuneMusic) | 2026-09-04 | yes, packaged AUMID | title only for a local video; artists empty | BMP 3.6 MB frame grab | confirmed | not advertised for a single item | accepted; position advanced past target | shuffle state reported without shuffle capability; repeat advertised | n/a | Large artwork; keep the decode bound |
+| VLC 3.0.23 | 2026-09-04 | **no session** | | | | | | | | VLC 3 does not publish SMTC on Windows; VLC 4 is expected to. Unsupported until then |
+| Spotify for Windows | | not installed on the dev machine | | | | | | | | |
+| YouTube Music (Edge) | | pending; Chromium behaviour expected to match Chrome | | | | | | | | |
+| YouTube Music desktop client | | not installed on the dev machine | | | | | | | | |
+| Firefox (any site) | | pending | | | | | | | | |
+
+Observed on every run: PowerToys Peek leaves a metadata-less paused session behind after it has been used. `MediaSnapshot.HasMetadata` is false for it.
 
 ## Manual checklist per milestone
 

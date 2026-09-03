@@ -7,16 +7,21 @@ Branch naming: `feat/<area>`, `fix/<area>`, `docs/<area>`. Every milestone ends 
 ### M0 Foundation (done)
 - Product docs, `_docs/`, `CLAUDE.md`, GPL-3.0 licence, ADRs 0001-0003. Commit `6ac2a3f`.
 
-### M1 GSMTC capability spike - `feat/foundation` (in progress)
+### M1 GSMTC capability spike - `feat/foundation` (done 2026-09-04)
 1. Done: .NET SDK 10.0.400 installed and pinned in `global.json`.
 2. Done: `WinDots.sln`, `Directory.Build.props`, `Directory.Packages.props` pinning Windows App SDK 2.4.0. Commit `bc82a83`.
 3. Done: `WinDots.Core` contracts and records, plus `TimelineInterpolator` and `TimeFormat` with 16 unit tests. Commit `bc82a83`.
-4. Done: `WinDots.Windows/Media/GsmtcSessionProvider` and `GsmtcSession`. Commit `bc82a83`.
-5. Done: `WinDots.App` packaged with `globalMediaControl`; `Diagnostics/SessionInspectorWindow` lists sessions, shows snapshot JSON and artwork, sends commands. Verified live on 2026-09-04: two sessions discovered (Chrome playing YouTube, a stale PowerToys Peek session), system-current detection correct, buttons gated by capabilities. Commit `c9dc119`.
-6. To do: `tests/WinDots.TestPlayer` (controllable SMTC publisher).
-7. To do: fill the compatibility matrix for Spotify, YouTube Music in Edge, and VLC; exercise play/pause, next, previous, seek on each.
-- **Exit**: two independent players discovered and controlled; session churn survives; unsupported commands fail safely.
-- Known quirk: apps that once used SMTC (PowerToys Peek) can leave an empty paused session behind. The coordinator (M3) must score such sessions at the bottom; `HasMetadata == false` is the signal.
+4. Done: `WinDots.Windows/Media/GsmtcSessionProvider` and `GsmtcSession` on a dedicated `MediaDispatcher` thread (WinRT objects fault with `RPC_E_WRONG_THREAD` when used across threads). Commits `bc82a83`, `41ca5f8`.
+5. Done: `WinDots.App` packaged with `globalMediaControl`; `Diagnostics/SessionInspectorWindow` lists sessions, shows snapshot JSON and artwork, sends commands. Commit `c9dc119`.
+6. Done: `tests/WinDots.TestPlayer` (controllable SMTC publisher driven over stdin) and `tests/WinDots.Windows.Tests` with an automated end-to-end test plus `RealPlayerProbe`. Commit `41ca5f8`.
+7. Done: matrix filled for Chrome, Windows Media Player, VLC 3 (no session), and the test player. Spotify and the YouTube Music desktop client are not installed here; Edge and Firefox are pending.
+- **Exit met**: Chrome and Windows Media Player were discovered and controlled independently of each other; the test player's arrival and removal are handled without restart; commands on a vanished session are rejected, not thrown.
+- Findings feeding later milestones:
+  - Stale metadata-less sessions exist (PowerToys Peek). The coordinator (M3) must rank `HasMetadata == false` sessions last.
+  - Chrome reports playback rate 0 while playing; the interpolator already treats rate <= 0 as 1.
+  - Windows Media Player publishes multi-megabyte bitmap thumbnails; keep the byte bound and decode at reduced size (M3 artwork cache).
+  - Session identity is AUMID plus ordinal; two Chrome windows would renumber when one closes. Revisit in M3 if the chooser flickers.
+  - VLC 3 is unsupported by design of the platform, not a WinDots bug.
 
 ### M2 Drawer interaction - `feat/drawer-gesture`
 1. `DrawerController`, `VelocityTracker` in Core with tests.
