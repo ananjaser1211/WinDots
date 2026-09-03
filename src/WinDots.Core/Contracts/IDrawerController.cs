@@ -34,6 +34,9 @@ public interface IDrawerController
     /// <summary>0 = fully hidden, 1 = fully open. May slightly exceed 1 while rubber-banding.</summary>
     double Progress { get; }
 
+    /// <summary>The resting progress (0 or 1) the view should animate towards while settling.</summary>
+    double Target { get; }
+
     void PointerDown(PointerSample sample);
 
     void PointerMove(PointerSample sample);
