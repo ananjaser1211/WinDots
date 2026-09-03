@@ -1,0 +1,16 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <Deterministic>true</Deterministic>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <Company>WinDots</Company>
+    <Product>WinDots</Product>
+    <Version>0.1.0</Version>
+    <Copyright>Copyright (c) WinDots contributors. Licensed under GPL-3.0-or-later.</Copyright>
+  </PropertyGroup>
+</Project>

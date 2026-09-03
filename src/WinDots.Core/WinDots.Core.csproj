@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>WinDots.Core</RootNamespace>
+    <Description>Platform-neutral domain models, contracts, and policies for WinDots.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="WinDots.Core.Tests" />
+  </ItemGroup>
+
+</Project>
