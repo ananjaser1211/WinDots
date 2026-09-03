@@ -7,24 +7,28 @@ using Windows.Media.Control;
 using Windows.Storage.Streams;
 using WinDots.Core.Contracts;
 using WinDots.Core.Media;
+using WinDots.Windows.Threading;
 
 namespace WinDots.Windows.Media;
 
 /// <summary>
 /// Adapts one <see cref="GlobalSystemMediaTransportControlsSession"/> to <see cref="IMediaSession"/>.
-/// Every platform call is wrapped: a vanished session yields an empty snapshot or a faulted command, never an exception.
-/// Events are raised on the platform's callback thread; consumers marshal to their own context.
+/// Every platform call runs on the owning <see cref="MediaDispatcher"/> thread. A vanished session yields an
+/// empty snapshot or a faulted command, never an exception. <see cref="Updated"/> is raised on the dispatcher
+/// thread; consumers marshal to their own context.
 /// </summary>
 public sealed class GsmtcSession : IMediaSession, IDisposable
 {
     private readonly GlobalSystemMediaTransportControlsSession _session;
-    private readonly SemaphoreSlim _refreshGate = new(1, 1);
+    private readonly MediaDispatcher _dispatcher;
     private MediaSnapshot _current;
-    private bool _disposed;
+    private volatile bool _disposed;
 
-    internal GsmtcSession(GlobalSystemMediaTransportControlsSession session, string id)
+    /// <summary>Must be constructed on the dispatcher thread.</summary>
+    internal GsmtcSession(GlobalSystemMediaTransportControlsSession session, string id, MediaDispatcher dispatcher)
     {
         _session = session;
+        _dispatcher = dispatcher;
         Id = id;
         SourceAppId = session.SourceAppUserModelId ?? string.Empty;
         SourceDisplayName = ResolveDisplayName(SourceAppId);
@@ -63,70 +67,54 @@ public sealed class GsmtcSession : IMediaSession, IDisposable
     public Task<CommandResult> TrySetRepeatAsync(RepeatMode mode, CancellationToken ct) =>
         RunCommandAsync(Capabilities.Repeat, () => _session.TryChangeAutoRepeatModeAsync(ToPlatformRepeat(mode)), ct);
 
-    public async Task<ArtworkResult> LoadArtworkAsync(int maxBytes, CancellationToken ct)
+    public Task<ArtworkResult> LoadArtworkAsync(int maxBytes, CancellationToken ct)
     {
         if (_disposed)
         {
-            return ArtworkResult.Failed("Session is gone.");
+            return Task.FromResult(ArtworkResult.Failed("Session is gone."));
         }
 
-        try
+        return _dispatcher.InvokeAsync(async () =>
         {
-            var props = await _session.TryGetMediaPropertiesAsync().AsTask(ct).ConfigureAwait(false);
-            var reference = props?.Thumbnail;
-            if (reference is null)
+            try
             {
-                return ArtworkResult.None;
-            }
+                var props = await _session.TryGetMediaPropertiesAsync().AsTask(ct);
+                var reference = props?.Thumbnail;
+                if (reference is null)
+                {
+                    return ArtworkResult.None;
+                }
 
-            using var stream = await reference.OpenReadAsync().AsTask(ct).ConfigureAwait(false);
-            if (stream.Size == 0)
+                using var stream = await reference.OpenReadAsync().AsTask(ct);
+                if (stream.Size == 0)
+                {
+                    return ArtworkResult.None;
+                }
+
+                if (stream.Size > (ulong)maxBytes)
+                {
+                    return ArtworkResult.Failed($"Artwork of {stream.Size} bytes exceeds the {maxBytes} byte limit.");
+                }
+
+                using var reader = new DataReader(stream);
+                var loaded = await reader.LoadAsync((uint)stream.Size).AsTask(ct);
+                var bytes = new byte[loaded];
+                reader.ReadBytes(bytes);
+                return ArtworkResult.Loaded(bytes, stream.ContentType);
+            }
+            catch (OperationCanceledException)
             {
-                return ArtworkResult.None;
+                throw;
             }
-
-            if (stream.Size > (ulong)maxBytes)
+            catch (Exception ex) when (ex is COMException or InvalidOperationException or UnauthorizedAccessException)
             {
-                return ArtworkResult.Failed($"Artwork of {stream.Size} bytes exceeds the {maxBytes} byte limit.");
+                return ArtworkResult.Failed(ex.Message);
             }
-
-            using var reader = new DataReader(stream);
-            var size = (uint)stream.Size;
-            var loaded = await reader.LoadAsync(size).AsTask(ct).ConfigureAwait(false);
-            var bytes = new byte[loaded];
-            reader.ReadBytes(bytes);
-            return ArtworkResult.Loaded(bytes, stream.ContentType);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex) when (ex is COMException or InvalidOperationException or UnauthorizedAccessException)
-        {
-            return ArtworkResult.Failed(ex.Message);
-        }
+        });
     }
 
-    /// <summary>Re-reads every property from the platform and publishes a new snapshot.</summary>
-    internal async Task RefreshAsync(CancellationToken ct)
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        await _refreshGate.WaitAsync(ct).ConfigureAwait(false);
-        try
-        {
-            var snapshot = await BuildSnapshotAsync(ct).ConfigureAwait(false);
-            Volatile.Write(ref _current, snapshot);
-            Updated?.Invoke(this, snapshot);
-        }
-        finally
-        {
-            _refreshGate.Release();
-        }
-    }
+    /// <summary>Re-reads every property from the platform and publishes a new snapshot. Runs on the dispatcher.</summary>
+    internal Task RefreshAsync(CancellationToken ct) => _dispatcher.InvokeAsync(() => RefreshOnDispatcherAsync(ct));
 
     public void Dispose()
     {
@@ -139,7 +127,6 @@ public sealed class GsmtcSession : IMediaSession, IDisposable
         _session.MediaPropertiesChanged -= OnPlatformChanged;
         _session.PlaybackInfoChanged -= OnPlatformChanged;
         _session.TimelinePropertiesChanged -= OnPlatformChanged;
-        _refreshGate.Dispose();
     }
 
     private void OnPlatformChanged(GlobalSystemMediaTransportControlsSession sender, object args)
@@ -156,12 +143,24 @@ public sealed class GsmtcSession : IMediaSession, IDisposable
     {
         try
         {
-            await RefreshAsync(CancellationToken.None).ConfigureAwait(false);
+            await RefreshAsync(CancellationToken.None);
         }
         catch (Exception ex) when (ex is COMException or InvalidOperationException or ObjectDisposedException)
         {
-            // The session vanished mid-refresh. The provider will drop it on the next SessionsChanged.
+            // The session vanished mid-refresh. The provider drops it on the next SessionsChanged.
         }
+    }
+
+    private async Task RefreshOnDispatcherAsync(CancellationToken ct)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        var snapshot = await BuildSnapshotAsync(ct);
+        Volatile.Write(ref _current, snapshot);
+        Updated?.Invoke(this, snapshot);
     }
 
     private async Task<MediaSnapshot> BuildSnapshotAsync(CancellationToken ct)
@@ -170,7 +169,7 @@ public sealed class GsmtcSession : IMediaSession, IDisposable
         GlobalSystemMediaTransportControlsSessionMediaProperties? props = null;
         try
         {
-            props = await _session.TryGetMediaPropertiesAsync().AsTask(ct).ConfigureAwait(false);
+            props = await _session.TryGetMediaPropertiesAsync().AsTask(ct);
         }
         catch (Exception ex) when (ex is COMException or InvalidOperationException)
         {
@@ -205,37 +204,45 @@ public sealed class GsmtcSession : IMediaSession, IDisposable
             CapturedAt: now);
     }
 
-    private async Task<CommandResult> RunCommandAsync(Capabilities required, Func<global::Windows.Foundation.IAsyncOperation<bool>> command, CancellationToken ct)
+    private Task<CommandResult> RunCommandAsync(Capabilities required, Func<global::Windows.Foundation.IAsyncOperation<bool>> command, CancellationToken ct)
     {
         if (_disposed)
         {
-            return CommandResult.Rejected("Session is gone.");
+            return Task.FromResult(CommandResult.Rejected("Session is gone."));
         }
 
         if (!Current.Can(required))
         {
-            return CommandResult.Unsupported(required.ToString());
+            return Task.FromResult(CommandResult.Unsupported(required.ToString()));
         }
 
-        try
+        return _dispatcher.InvokeAsync(async () =>
         {
-            var accepted = await command().AsTask(ct).ConfigureAwait(false);
-            if (!accepted)
+            if (_disposed)
             {
-                return CommandResult.Rejected("The player declined the command.");
+                return CommandResult.Rejected("Session is gone.");
             }
 
-            _ = RefreshSafelyAsync();
-            return CommandResult.Succeeded;
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex) when (ex is COMException or InvalidOperationException)
-        {
-            return CommandResult.Faulted(ex);
-        }
+            try
+            {
+                var accepted = await command().AsTask(ct);
+                if (!accepted)
+                {
+                    return CommandResult.Rejected("The player declined the command.");
+                }
+
+                _ = RefreshSafelyAsync();
+                return CommandResult.Succeeded;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is COMException or InvalidOperationException)
+            {
+                return CommandResult.Faulted(ex);
+            }
+        });
     }
 
     private static T? SafeGet<T>(Func<T> getter)

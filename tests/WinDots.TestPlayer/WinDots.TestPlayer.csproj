@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <RootNamespace>WinDots.TestPlayer</RootNamespace>
+    <Platforms>x64;ARM64</Platforms>
+    <IsPackable>false</IsPackable>
+    <Description>Controllable System Media Transport Controls publisher for WinDots QA. Not a product component.</Description>
+  </PropertyGroup>
+
+</Project>

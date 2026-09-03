@@ -9,7 +9,8 @@ public readonly record struct CommandResult(CommandStatus Status, string? Messag
 
     public static CommandResult Unsupported(string capability) => new(CommandStatus.Unsupported, $"{capability} is not supported by this player.");
 
-    public static CommandResult Faulted(Exception exception) => new(CommandStatus.Faulted, exception.Message);
+    public static CommandResult Faulted(Exception exception) =>
+        new(CommandStatus.Faulted, $"{exception.GetType().Name} (0x{exception.HResult:X8}) {exception.Message}".TrimEnd());
 
     public bool IsSuccess => Status == CommandStatus.Succeeded;
 }
