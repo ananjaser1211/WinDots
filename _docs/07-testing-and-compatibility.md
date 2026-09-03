@@ -4,9 +4,10 @@
 
 | Area | Cases |
 |---|---|
-| `DrawerController` | click below threshold toggles; drag then release above `openThreshold` opens; fast flick below threshold opens; upward flick closes; rubber-band clamp; horizontal jitter ignored; reduced-motion path emits no spring |
-| `VelocityTracker` | windowed average, stale sample eviction, sign |
+| `DrawerController` | click below threshold toggles; drag then release above `openThreshold` opens; fast flick below threshold opens; upward flick closes; rubber-band clamp; horizontal jitter ignored; reduced-motion path emits no spring; open-drawer top-band drag closes on upward travel past the threshold and stays open on a click or downward pull; toggle/dismiss/animation-completed transitions and their no-op cases (implemented, `Drawer/DrawerControllerTests`) |
+| `VelocityTracker` | windowed average, stale sample eviction, sign, horizontal motion ignored, clock going backwards (implemented, `Drawer/VelocityTrackerTests`) |
 | `TimelineInterpolator` | playing advances; paused holds; rate other than 1; clamp to end; pending seek window ignores stale events |
+| `SessionQuality` | metadata-less idle session is stale, active or titled one is not; invalid rates (null, 0, negative, NaN, infinity) become 1; future or unset `LastUpdated` becomes `CapturedAt` (implemented, `Media/SessionQualityTests`) |
 | `SessionCoordinator` | every scoring table row; pin sticks until removal; ignored players excluded; tie-break by recency |
 | `BlobGeometry` | deterministic for a seed; closed path; amplitude 0 is a circle |
 | `PaletteService` | fixed artwork fixtures produce an accent with >= 4.5:1 contrast; fallback on a transparent image |
@@ -30,6 +31,9 @@ Implemented in `GsmtcSessionProviderTests`:
 - Artwork loads; an undersized byte limit yields `ArtworkResult.Failed` without throwing.
 - Next, play/pause, seek, shuffle, and repeat round-trip: the command is accepted, the player logs the request, and the new state flows back into the snapshot.
 - Quitting the player removes the session; a command on the vanished session is rejected, not thrown.
+- `DuplicateLeavingKeepsSurvivorIdentity`: two test players share one AUMID and get `#0` and `#1`; when `#0` quits, `#1` keeps its wrapper instance and ID (no renumbering); a third player then takes the free `#0`, and every ID of that AUMID is unique.
+
+`GsmtcSessionOrdinalTests` (same project, no desktop needed) pins the pure numbering rule `GsmtcSessionProvider.NextOrdinal`: lowest free ordinal regardless of survivor order, freed ordinals reused, malformed IDs ignored, and newcomers numbered after all survivors never collide with a survivor's ordinal (the order-dependent case the platform test cannot force).
 
 Planned: Core Audio matching tiers (M5) and monitor enumeration (M2).
 
@@ -51,7 +55,7 @@ Columns record what the session advertised and what the probe confirmed. "n/a" m
 | Player | Date | Discovered | Metadata | Artwork | Play/Pause | Prev/Next | Seek | Shuffle/Repeat | Volume match | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
 | WinDots.TestPlayer | 2026-09-04 | yes | title, artist, album, track no. | BMP, loads | confirmed | confirmed | confirmed | confirmed | n/a | Automated in `GsmtcSessionProviderTests` |
-| YouTube video (Chrome 2026) | 2026-09-04 | yes, AUMID `Chrome` | title; channel absent; album null | PNG 12 KB | confirmed | not advertised for a single video | confirmed at target | not advertised | n/a | Reports `PlaybackRate` 0 even while playing; interpolator treats rate <= 0 as 1 |
+| YouTube video (Chrome 2026) | 2026-09-04 | yes, AUMID `Chrome` | title; channel absent; album null | PNG 12 KB | confirmed | not advertised for a single video | confirmed at target | not advertised | n/a | Reports `PlaybackRate` 0 even while playing; the adapter stores 1.0 (`SessionQuality.NormalizeRate`). Re-probed 2026-09-04 after the identity fix: toggle, seek at target, `SystemCurrent` = `Chrome#0`, PNG 24 KB. One run saw Chrome drop and recreate its session on the first toggle after 20 min idle (old object stopped answering); the provider replaces the wrapper on the resulting SessionsChanged |
 | Windows Media Player (ZuneMusic) | 2026-09-04 | yes, packaged AUMID | title only for a local video; artists empty | BMP 3.6 MB frame grab | confirmed | not advertised for a single item | accepted; position advanced past target | shuffle state reported without shuffle capability; repeat advertised | n/a | Large artwork; keep the decode bound |
 | VLC 3.0.23 | 2026-09-04 | **no session** | | | | | | | | VLC 3 does not publish SMTC on Windows; VLC 4 is expected to. Unsupported until then |
 | Spotify for Windows | | not installed on the dev machine | | | | | | | | |
@@ -60,6 +64,8 @@ Columns record what the session advertised and what the probe confirmed. "n/a" m
 | Firefox (any site) | | pending | | | | | | | | |
 
 Observed on every run: PowerToys Peek leaves a metadata-less paused session behind after it has been used. `MediaSnapshot.HasMetadata` is false for it.
+
+Platform behaviour established while fixing session identity (2026-09-04, Windows 11 26200): `GetSessions()` returns a new COM object per call for the same session, so wrappers are matched by state fingerprint (`_docs/05-architecture.md`, "Session identity"); an exited player's session object keeps answering `GetPlaybackInfo` at the moment the removal event fires and only starts throwing afterwards, so liveness probing cannot replace matching.
 
 ## Manual checklist per milestone
 

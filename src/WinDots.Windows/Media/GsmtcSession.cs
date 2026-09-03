@@ -19,6 +19,8 @@ namespace WinDots.Windows.Media;
 /// </summary>
 public sealed class GsmtcSession : IMediaSession, IDisposable
 {
+    private const int ArtworkChunkBytes = 64 * 1024;
+
     private readonly GlobalSystemMediaTransportControlsSession _session;
     private readonly MediaDispatcher _dispatcher;
     private MediaSnapshot _current;
@@ -30,7 +32,7 @@ public sealed class GsmtcSession : IMediaSession, IDisposable
         _session = session;
         _dispatcher = dispatcher;
         Id = id;
-        SourceAppId = session.SourceAppUserModelId ?? string.Empty;
+        SourceAppId = SafeGet(() => session.SourceAppUserModelId) ?? string.Empty;
         SourceDisplayName = ResolveDisplayName(SourceAppId);
         _current = MediaSnapshot.Empty(Id, SourceAppId, SourceDisplayName, DateTimeOffset.UtcNow);
 
@@ -46,6 +48,16 @@ public sealed class GsmtcSession : IMediaSession, IDisposable
     public string SourceDisplayName { get; }
 
     public MediaSnapshot Current => Volatile.Read(ref _current);
+
+    /// <summary>True once <see cref="Dispose"/> ran; the provider drops disposed wrappers on the next reconcile.</summary>
+    internal bool IsDisposed => _disposed;
+
+    /// <summary>
+    /// Dispatcher thread only. Reads the state the platform session reports right now so the provider can tell
+    /// whether an enumerated session object is this wrapper's session; null when the object no longer answers.
+    /// See <see cref="SessionFingerprint"/> for why identity has to be inferred this way.
+    /// </summary>
+    internal SessionFingerprint? Fingerprint() => _disposed ? null : SessionFingerprint.Read(_session);
 
     public event EventHandler<MediaSnapshot>? Updated;
 
@@ -69,53 +81,30 @@ public sealed class GsmtcSession : IMediaSession, IDisposable
 
     public Task<ArtworkResult> LoadArtworkAsync(int maxBytes, CancellationToken ct)
     {
-        if (_disposed)
+        if (_disposed || _dispatcher.IsDisposed)
         {
             return Task.FromResult(ArtworkResult.Failed("Session is gone."));
         }
 
-        return _dispatcher.InvokeAsync(async () =>
+        if (maxBytes <= 0)
         {
-            try
-            {
-                var props = await _session.TryGetMediaPropertiesAsync().AsTask(ct);
-                var reference = props?.Thumbnail;
-                if (reference is null)
-                {
-                    return ArtworkResult.None;
-                }
+            return Task.FromResult(ArtworkResult.Failed("Artwork byte limit must be positive."));
+        }
 
-                using var stream = await reference.OpenReadAsync().AsTask(ct);
-                if (stream.Size == 0)
-                {
-                    return ArtworkResult.None;
-                }
-
-                if (stream.Size > (ulong)maxBytes)
-                {
-                    return ArtworkResult.Failed($"Artwork of {stream.Size} bytes exceeds the {maxBytes} byte limit.");
-                }
-
-                using var reader = new DataReader(stream);
-                var loaded = await reader.LoadAsync((uint)stream.Size).AsTask(ct);
-                var bytes = new byte[loaded];
-                reader.ReadBytes(bytes);
-                return ArtworkResult.Loaded(bytes, stream.ContentType);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex) when (ex is COMException or InvalidOperationException or UnauthorizedAccessException)
-            {
-                return ArtworkResult.Failed(ex.Message);
-            }
-        });
+        try
+        {
+            return _dispatcher.InvokeAsync(() => LoadArtworkOnDispatcherAsync(maxBytes, ct));
+        }
+        catch (ObjectDisposedException)
+        {
+            return Task.FromResult(ArtworkResult.Failed("Session is gone."));
+        }
     }
 
     /// <summary>Re-reads every property from the platform and publishes a new snapshot. Runs on the dispatcher.</summary>
     internal Task RefreshAsync(CancellationToken ct) => _dispatcher.InvokeAsync(() => RefreshOnDispatcherAsync(ct));
 
+    /// <summary>Dispatcher thread only: the platform event removal is a WinRT call.</summary>
     public void Dispose()
     {
         if (_disposed)
@@ -124,9 +113,86 @@ public sealed class GsmtcSession : IMediaSession, IDisposable
         }
 
         _disposed = true;
-        _session.MediaPropertiesChanged -= OnPlatformChanged;
-        _session.PlaybackInfoChanged -= OnPlatformChanged;
-        _session.TimelinePropertiesChanged -= OnPlatformChanged;
+        try
+        {
+            _session.MediaPropertiesChanged -= OnPlatformChanged;
+            _session.PlaybackInfoChanged -= OnPlatformChanged;
+            _session.TimelinePropertiesChanged -= OnPlatformChanged;
+        }
+        catch (Exception ex) when (IsPlatformFailure(ex))
+        {
+            // The platform object is already dead; its event sources went with it.
+        }
+    }
+
+    private static bool IsPlatformFailure(Exception ex) =>
+        ex is COMException or InvalidOperationException or UnauthorizedAccessException or FileNotFoundException
+            or ArgumentException or NotSupportedException or ObjectDisposedException;
+
+    private async Task<ArtworkResult> LoadArtworkOnDispatcherAsync(int maxBytes, CancellationToken ct)
+    {
+        if (_disposed)
+        {
+            return ArtworkResult.Failed("Session is gone.");
+        }
+
+        try
+        {
+            var props = await _session.TryGetMediaPropertiesAsync().AsTask(ct);
+            var reference = props?.Thumbnail;
+            if (reference is null)
+            {
+                return ArtworkResult.None;
+            }
+
+            using var stream = await reference.OpenReadAsync().AsTask(ct);
+
+            // Size is advisory: some streams report 0 for an unknown length, and a known size lets us refuse a
+            // multi-megabyte frame grab (Windows Media Player) before touching a single byte.
+            var declared = stream.Size;
+            if (declared > (ulong)maxBytes)
+            {
+                return ArtworkResult.Failed($"Artwork of {declared} bytes exceeds the {maxBytes} byte limit.");
+            }
+
+            using var reader = new DataReader(stream) { InputStreamOptions = InputStreamOptions.Partial };
+            var buffer = new MemoryStream(declared == 0 ? ArtworkChunkBytes : (int)declared);
+            var chunk = new byte[ArtworkChunkBytes];
+            while (true)
+            {
+                // LoadAsync may deliver fewer bytes than requested; keep pulling until the stream reports end-of-data.
+                var loaded = await reader.LoadAsync(ArtworkChunkBytes).AsTask(ct);
+                if (loaded == 0)
+                {
+                    break;
+                }
+
+                if ((ulong)buffer.Length + loaded > (ulong)maxBytes)
+                {
+                    return ArtworkResult.Failed($"Artwork exceeds the {maxBytes} byte limit.");
+                }
+
+                // ReadBytes fills the whole array it is given, so hand it exactly the bytes that were loaded.
+                var part = loaded == ArtworkChunkBytes ? chunk : new byte[loaded];
+                reader.ReadBytes(part);
+                buffer.Write(part, 0, (int)loaded);
+            }
+
+            if (buffer.Length == 0)
+            {
+                return ArtworkResult.None;
+            }
+
+            return ArtworkResult.Loaded(buffer.ToArray(), Normalize(stream.ContentType));
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (IsPlatformFailure(ex))
+        {
+            return ArtworkResult.Failed(ex.Message);
+        }
     }
 
     private void OnPlatformChanged(GlobalSystemMediaTransportControlsSession sender, object args)
@@ -145,7 +211,7 @@ public sealed class GsmtcSession : IMediaSession, IDisposable
         {
             await RefreshAsync(CancellationToken.None);
         }
-        catch (Exception ex) when (ex is COMException or InvalidOperationException or ObjectDisposedException)
+        catch (Exception ex) when (IsPlatformFailure(ex))
         {
             // The session vanished mid-refresh. The provider drops it on the next SessionsChanged.
         }
@@ -159,19 +225,24 @@ public sealed class GsmtcSession : IMediaSession, IDisposable
         }
 
         var snapshot = await BuildSnapshotAsync(ct);
+        if (_disposed)
+        {
+            // Disposed while the platform reads were in flight; do not publish for a dead session.
+            return;
+        }
+
         Volatile.Write(ref _current, snapshot);
         Updated?.Invoke(this, snapshot);
     }
 
     private async Task<MediaSnapshot> BuildSnapshotAsync(CancellationToken ct)
     {
-        var now = DateTimeOffset.UtcNow;
         GlobalSystemMediaTransportControlsSessionMediaProperties? props = null;
         try
         {
             props = await _session.TryGetMediaPropertiesAsync().AsTask(ct);
         }
-        catch (Exception ex) when (ex is COMException or InvalidOperationException)
+        catch (Exception ex) when (IsPlatformFailure(ex))
         {
             // Metadata unavailable; keep going with playback and timeline.
         }
@@ -179,10 +250,15 @@ public sealed class GsmtcSession : IMediaSession, IDisposable
         var playback = SafeGet(_session.GetPlaybackInfo);
         var timeline = SafeGet(_session.GetTimelineProperties);
 
+        // Captured after the reads so that CapturedAt is never earlier than a LastUpdated the platform stamped
+        // during them; SessionQuality then clamps any LastUpdated that is still in the future.
+        var now = DateTimeOffset.UtcNow;
+
         var artists = new List<string>(2);
-        if (!string.IsNullOrWhiteSpace(props?.Artist))
+        var artist = Normalize(props?.Artist);
+        if (artist is not null)
         {
-            artists.Add(props!.Artist.Trim());
+            artists.Add(artist);
         }
 
         return new MediaSnapshot(
@@ -197,7 +273,12 @@ public sealed class GsmtcSession : IMediaSession, IDisposable
             Caps: ToCapabilities(playback?.Controls),
             Timeline: timeline is null
                 ? Timeline.Empty
-                : new Timeline(timeline.StartTime, timeline.EndTime, timeline.Position, timeline.LastUpdatedTime, playback?.PlaybackRate ?? 1.0),
+                : new Timeline(
+                    timeline.StartTime,
+                    timeline.EndTime,
+                    timeline.Position,
+                    SessionQuality.NormalizeLastUpdated(timeline.LastUpdatedTime, now),
+                    SessionQuality.NormalizeRate(playback?.PlaybackRate)),
             Shuffle: playback?.IsShuffleActive,
             Repeat: ToRepeat(playback?.AutoRepeatMode),
             ArtworkKey: props?.Thumbnail is null ? null : ArtworkKeyFor(props),
@@ -206,7 +287,7 @@ public sealed class GsmtcSession : IMediaSession, IDisposable
 
     private Task<CommandResult> RunCommandAsync(Capabilities required, Func<global::Windows.Foundation.IAsyncOperation<bool>> command, CancellationToken ct)
     {
-        if (_disposed)
+        if (_disposed || _dispatcher.IsDisposed)
         {
             return Task.FromResult(CommandResult.Rejected("Session is gone."));
         }
@@ -216,43 +297,52 @@ public sealed class GsmtcSession : IMediaSession, IDisposable
             return Task.FromResult(CommandResult.Unsupported(required.ToString()));
         }
 
-        return _dispatcher.InvokeAsync(async () =>
+        try
         {
-            if (_disposed)
-            {
-                return CommandResult.Rejected("Session is gone.");
-            }
-
-            try
-            {
-                var accepted = await command().AsTask(ct);
-                if (!accepted)
-                {
-                    return CommandResult.Rejected("The player declined the command.");
-                }
-
-                _ = RefreshSafelyAsync();
-                return CommandResult.Succeeded;
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex) when (ex is COMException or InvalidOperationException)
-            {
-                return CommandResult.Faulted(ex);
-            }
-        });
+            return _dispatcher.InvokeAsync(() => RunCommandOnDispatcherAsync(command, ct));
+        }
+        catch (ObjectDisposedException)
+        {
+            return Task.FromResult(CommandResult.Rejected("Session is gone."));
+        }
     }
 
-    private static T? SafeGet<T>(Func<T> getter)
+    private async Task<CommandResult> RunCommandOnDispatcherAsync(Func<global::Windows.Foundation.IAsyncOperation<bool>> command, CancellationToken ct)
+    {
+        if (_disposed)
+        {
+            return CommandResult.Rejected("Session is gone.");
+        }
+
+        try
+        {
+            var accepted = await command().AsTask(ct);
+            if (!accepted)
+            {
+                return CommandResult.Rejected("The player declined the command.");
+            }
+
+            _ = RefreshSafelyAsync();
+            return CommandResult.Succeeded;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (IsPlatformFailure(ex))
+        {
+            return CommandResult.Faulted(ex);
+        }
+    }
+
+    private static T? SafeGet<T>(Func<T?> getter)
         where T : class
     {
         try
         {
             return getter();
         }
-        catch (Exception ex) when (ex is COMException or InvalidOperationException)
+        catch (Exception ex) when (IsPlatformFailure(ex))
         {
             return null;
         }
@@ -276,6 +366,8 @@ public sealed class GsmtcSession : IMediaSession, IDisposable
 
         try
         {
+            // Throws ArgumentException / FileNotFoundException / COMException for anything that is not a packaged app
+            // (browsers, classic desktop players); those fall through to the executable name.
             var info = AppInfo.GetFromAppUserModelId(aumid);
             var name = info?.DisplayInfo?.DisplayName;
             if (!string.IsNullOrWhiteSpace(name))
@@ -283,16 +375,16 @@ public sealed class GsmtcSession : IMediaSession, IDisposable
                 return name;
             }
         }
-        catch (Exception ex) when (ex is COMException or ArgumentException or FileNotFoundException)
+        catch (Exception ex) when (IsPlatformFailure(ex))
         {
-            // Not a packaged app; fall through to the executable name.
+            // Not a packaged app.
         }
 
         var name2 = aumid;
-        var bang = name2.LastIndexOf('!');
-        if (bang >= 0 && bang < name2.Length - 1)
+        var separator = name2.LastIndexOfAny(['!', '\\', '/']);
+        if (separator >= 0 && separator < name2.Length - 1)
         {
-            name2 = name2[(bang + 1)..];
+            name2 = name2[(separator + 1)..];
         }
 
         if (name2.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
@@ -300,7 +392,7 @@ public sealed class GsmtcSession : IMediaSession, IDisposable
             name2 = name2[..^4];
         }
 
-        return name2;
+        return string.IsNullOrWhiteSpace(name2) ? aumid : name2;
     }
 
     private static MediaKind ToKind(MediaPlaybackType? type) => type switch
@@ -331,7 +423,10 @@ public sealed class GsmtcSession : IMediaSession, IDisposable
         var caps = Capabilities.None;
         if (c.IsPlayEnabled) caps |= Capabilities.Play;
         if (c.IsPauseEnabled) caps |= Capabilities.Pause;
-        if (c.IsPlayPauseToggleEnabled || (c.IsPlayEnabled && c.IsPauseEnabled)) caps |= Capabilities.PlayPause;
+
+        // TryTogglePlayPauseAsync works whenever either direction is enabled; players advertise only the direction
+        // that currently applies (Pause while playing, Play while paused) and not always the toggle flag.
+        if (c.IsPlayPauseToggleEnabled || c.IsPlayEnabled || c.IsPauseEnabled) caps |= Capabilities.PlayPause;
         if (c.IsNextEnabled) caps |= Capabilities.Next;
         if (c.IsPreviousEnabled) caps |= Capabilities.Previous;
         if (c.IsPlaybackPositionEnabled) caps |= Capabilities.Seek;

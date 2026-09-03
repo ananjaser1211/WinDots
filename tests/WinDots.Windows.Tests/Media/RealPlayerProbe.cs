@@ -32,9 +32,11 @@ public class RealPlayerProbe(ITestOutputHelper output)
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         var ct = cts.Token;
         await using var provider = new GsmtcSessionProvider();
+        provider.SessionsChanged += (_, e) => output.WriteLine($"[SessionsChanged] {string.Join(", ", e.Sessions.Select(s => s.Id))}");
+        provider.SystemCurrentChanged += (_, _) => output.WriteLine($"[SystemCurrentChanged] {provider.SystemCurrent?.Id ?? "none"}");
         await provider.InitializeAsync(ct);
 
-        output.WriteLine($"Sessions: {string.Join(", ", provider.Sessions.Select(s => s.SourceAppId))}");
+        output.WriteLine($"Sessions: {string.Join(", ", provider.Sessions.Select(s => s.Id))}; system current: {provider.SystemCurrent?.Id ?? "none"}");
         var session = provider.Sessions.FirstOrDefault(s => s.SourceAppId.Contains(target, StringComparison.OrdinalIgnoreCase));
         Assert.True(session is not null, $"No session whose AUMID contains '{target}'.");
 
@@ -81,6 +83,7 @@ public class RealPlayerProbe(ITestOutputHelper output)
 
         output.WriteLine("Final snapshot:");
         output.WriteLine(JsonSerializer.Serialize(session.Current, Json));
+        output.WriteLine($"Sessions at end: {string.Join(", ", provider.Sessions.Select(s => $"{s.Id} ({s.Current.State})"))}; probed session still listed: {provider.Sessions.Contains(session)}");
     }
 
     private async Task Report(string name, Task<CommandResult> command)

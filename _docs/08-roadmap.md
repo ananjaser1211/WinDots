@@ -18,9 +18,9 @@ Branch naming: `feat/<area>`, `fix/<area>`, `docs/<area>`. Every milestone ends 
 - **Exit met**: Chrome and Windows Media Player were discovered and controlled independently of each other; the test player's arrival and removal are handled without restart; commands on a vanished session are rejected, not thrown.
 - Findings feeding later milestones:
   - Stale metadata-less sessions exist (PowerToys Peek). The coordinator (M3) must rank `HasMetadata == false` sessions last.
-  - Chrome reports playback rate 0 while playing; the interpolator already treats rate <= 0 as 1.
+  - Chrome reports playback rate 0 while playing; the adapter now stores 1.0 for any non-positive rate (`SessionQuality.NormalizeRate`) and the interpolator still guards independently.
   - Windows Media Player publishes multi-megabyte bitmap thumbnails; keep the byte bound and decode at reduced size (M3 artwork cache).
-  - Session identity is AUMID plus ordinal; two Chrome windows would renumber when one closes. Revisit in M3 if the chooser flickers.
+  - Session identity is AUMID plus ordinal. Fixed: wrappers are matched across enumerations by state fingerprint (`05-architecture.md`, "Session identity"), so a survivor keeps its ID when a duplicate leaves and `SystemCurrent` resolves to the right duplicate; covered by `DuplicateLeavingKeepsSurvivorIdentity`.
   - VLC 3 is unsupported by design of the platform, not a WinDots bug.
 
 ### M2 Drawer interaction - `feat/drawer-gesture`

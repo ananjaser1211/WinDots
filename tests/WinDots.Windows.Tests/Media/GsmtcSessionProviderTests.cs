@@ -12,6 +12,7 @@ namespace WinDots.Windows.Tests.Media;
 [Trait("Category", "Platform")]
 public class GsmtcSessionProviderTests
 {
+
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(15);
 
     [Fact]
@@ -76,6 +77,48 @@ public class GsmtcSessionProviderTests
         Assert.False(late.IsSuccess);
     }
 
+    [Fact]
+    public async Task DuplicateLeavingKeepsSurvivorIdentity()
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        var ct = cts.Token;
+
+        await using var provider = new GsmtcSessionProvider();
+        await provider.InitializeAsync(ct);
+
+        await using var first = await TestPlayerHost.StartAsync(ct);
+        await first.SendAsync("title First Window");
+        var firstSession = await WaitForSessionAsync(provider, s => s.Current.Title == "First Window", ct);
+
+        await using var second = await TestPlayerHost.StartAsync(ct);
+        await second.SendAsync("title Second Window");
+        var secondSession = await WaitForSessionAsync(provider, s => s.Current.Title == "Second Window", ct);
+
+        Assert.NotEqual(firstSession.Id, secondSession.Id);
+        Assert.Equal(FakePlayer.AppUserModelId + "#0", firstSession.Id);
+        Assert.Equal(FakePlayer.AppUserModelId + "#1", secondSession.Id);
+        Assert.Same(firstSession, provider.Sessions.Single(s => s.Id == firstSession.Id));
+
+        // The first duplicate leaves: the survivor keeps its wrapper and its ordinal instead of being renumbered to #0.
+        await first.SendAsync("quit");
+        await WaitUntilAsync(() => provider.Sessions.Count(s => s.SourceAppId == FakePlayer.AppUserModelId) == 1, ct);
+        var survivor = provider.Sessions.Single(s => s.SourceAppId == FakePlayer.AppUserModelId);
+        Assert.Same(secondSession, survivor);
+        Assert.Equal(FakePlayer.AppUserModelId + "#1", survivor.Id);
+        Assert.Equal("Second Window", survivor.Current.Title);
+
+        // A newcomer takes the lowest free ordinal, and the survivor is still untouched.
+        await using var third = await TestPlayerHost.StartAsync(ct);
+        await third.SendAsync("title Third Window");
+        var thirdSession = await WaitForSessionAsync(provider, s => s.Current.Title == "Third Window", ct);
+        Assert.Equal(FakePlayer.AppUserModelId + "#0", thirdSession.Id);
+        Assert.Same(secondSession, provider.Sessions.Single(s => s.Id == FakePlayer.AppUserModelId + "#1"));
+
+        // Every ID is unique regardless of the order the platform enumerated the sessions in.
+        var ids = provider.Sessions.Where(s => s.SourceAppId == FakePlayer.AppUserModelId).Select(s => s.Id).ToList();
+        Assert.Equal(ids.Count, ids.Distinct(StringComparer.Ordinal).Count());
+    }
+
     private static void AssertSuccess(CommandResult result) =>
         Assert.True(result.IsSuccess, $"Command failed: {result.Status} {result.Message}");
 
@@ -105,5 +148,53 @@ public class GsmtcSessionProviderTests
 
             await Task.Delay(100, ct);
         }
+    }
+}
+
+/// <summary>
+/// The ordinal rule is pure so that the order-dependent case (a newcomer enumerated before a survivor) can be
+/// covered without a platform session: the provider numbers newcomers only after every survivor is matched.
+/// </summary>
+public class GsmtcSessionOrdinalTests
+{
+    private const string Aumid = "Example.App_abc!App";
+
+    [Fact]
+    public void FirstSessionTakesZero() =>
+        Assert.Equal(0, GsmtcSessionProvider.NextOrdinal([]));
+
+    [Fact]
+    public void SkipsEveryHeldOrdinalEvenWhenSurvivorsAreListedInAnyOrder()
+    {
+        Assert.Equal(1, GsmtcSessionProvider.NextOrdinal([$"{Aumid}#0"]));
+        Assert.Equal(1, GsmtcSessionProvider.NextOrdinal([$"{Aumid}#2", $"{Aumid}#0"]));
+        Assert.Equal(0, GsmtcSessionProvider.NextOrdinal([$"{Aumid}#1", $"{Aumid}#2"]));
+    }
+
+    [Fact]
+    public void ReusesTheLowestFreedOrdinal() =>
+        Assert.Equal(1, GsmtcSessionProvider.NextOrdinal([$"{Aumid}#0", $"{Aumid}#2"]));
+
+    [Fact]
+    public void IgnoresMalformedIds() =>
+        Assert.Equal(0, GsmtcSessionProvider.NextOrdinal([Aumid, $"{Aumid}#x"]));
+
+    [Fact]
+    public void NewcomersNumberedAfterAllSurvivorsNeverCollide()
+    {
+        // Review scenario: survivor W#0 (live) and W#1 (exited); the platform enumerates the newcomer first.
+        // With survivors resolved before numbering, the newcomer must land on #1, not on the survivor's #0.
+        var survivors = new List<string> { $"{Aumid}#0" };
+        var taken = new List<string>(survivors);
+        var assigned = new List<string>();
+        for (var i = 0; i < 2; i++)
+        {
+            var id = $"{Aumid}#{GsmtcSessionProvider.NextOrdinal(taken)}";
+            taken.Add(id);
+            assigned.Add(id);
+        }
+
+        Assert.Equal([$"{Aumid}#1", $"{Aumid}#2"], assigned);
+        Assert.Equal(taken.Count, taken.Distinct(StringComparer.Ordinal).Count());
     }
 }

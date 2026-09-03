@@ -64,12 +64,14 @@ public interface ISessionCoordinator
 public interface IDrawerController
 {
     DrawerState State { get; }
-    double Progress { get; }
+    double Progress { get; }   // current position, [0, 1] plus rubber-band
+    double Target { get; }     // resting position (0 or 1) the view springs towards while settling
     void PointerDown(PointerSample s);
     void PointerMove(PointerSample s);
     void PointerUp(PointerSample s);
     void Toggle();
     void Dismiss(DismissReason reason);
+    void AnimationCompleted();  // the view's spring settled; SettlingOpen/Closed -> Open/Closed
     event EventHandler<DrawerTransition>? Transition;
 }
 
@@ -121,6 +123,17 @@ Evaluated on every `SessionsChanged` / `Updated`; the highest score wins, ties b
 
 `SelectionReason` is exposed for diagnostics ("Pinned by user", "Playing", "Windows default").
 
+## Drawer gesture (`WinDots.Core/Drawer`)
+
+`DrawerController` implements `IDrawerController` with the state machine and thresholds from `03-ux-interaction-spec.md`; `DrawerOptions` carries the tunables (height, `dragThresholdPx`, `openThreshold`, `velocityThresholdPxPerS`, rubber-band factor, reduced motion) and `VelocityTracker` is the 60 ms windowed average (positive = downward, time taken only from sample timestamps). Decisions made in Core:
+
+- A press is armed only in `Closed` or `Open`; a second press during an active gesture and pointer events while settling are ignored.
+- Below `dragThresholdPx` the drawer does not move. Releasing there from `Closed` is a click (toggle); from the open drawer's top band it is a no-op.
+- Progress during a drag is measured from the press origin's progress (0 from the handle, 1 from the open drawer), clamped at 0 and rubber-banded above 1.
+- Release from the handle: open on downward velocity >= threshold or `progress >= openThreshold`; close on upward velocity >= threshold; otherwise nearer state. Release from the open drawer: same velocity rules, otherwise close only when upward travel reached `dragThresholdPx`.
+- `Toggle` from a settling state reverses the target; `Toggle` or `Dismiss` during a drag cancels the gesture and later samples from that press are ignored. `Dismiss` is a no-op when already closed or closing.
+- `Progress` is not changed by entering a settling state; the view animates from it to `Target` and calls `AnimationCompleted`, which snaps `Progress` to the target and enters `Open`/`Closed`. With `ReducedMotion` the settling states are skipped and the terminal state is entered at once so the view can cross-fade instead of springing.
+
 ## Timeline interpolation
 
 ```
@@ -129,6 +142,29 @@ displayed = clamp(displayed, Start, End)
 ```
 
 A `DispatcherQueueTimer` at `media.timelineTickMs` (default 500) drives the labels and ring while the drawer is open **and** state is Playing; it stops otherwise. GSMTC `TimelinePropertiesChanged` events replace the base values. A seek sets an optimistic base and marks `pendingSeekUntil = now + 2 s`; timeline events during that window that are more than 3 s from the target are ignored.
+
+## Snapshot normalisation (`WinDots.Core/Media/SessionQuality`)
+
+Pure policies the GSMTC adapter applies while building a `MediaSnapshot`, so consumers never see raw platform quirks:
+
+| Value | Rule | Why |
+|---|---|---|
+| `Timeline.Rate` | anything that is not a finite positive number becomes `1.0` | Chromium reports `PlaybackRate` 0 while playing; some players report null |
+| `Timeline.LastUpdated` | unset (default / epoch / FILETIME zero) or later than `CapturedAt` becomes `CapturedAt` | an unset stamp would project a playing track straight to its end; a future stamp (clock skew between the player and WinDots) would freeze it |
+| `CapturedAt` | taken after the platform reads | never earlier than a stamp the platform wrote during the reads |
+| `Capabilities.PlayPause` | set when the toggle flag **or** either direction (Play, Pause) is enabled | players advertise only the direction that currently applies; `TryTogglePlayPauseAsync` works with either |
+
+`SessionQuality.IsStale(snapshot)` is true for a session with no title, artist, or album that is not Playing or Changing (PowerToys Peek leaves one behind). The coordinator ranks such sessions last; the adapter does not hide them, because a metadata-less session can still be the one the user wants to pause.
+
+## Session identity (`GsmtcSessionProvider`)
+
+A session ID is `<AUMID>#<ordinal>`. The platform offers no identity: `GetSessions()` and `GetCurrentSession()` return a **new COM object on every call** (verified on Windows 11 26200: neither managed reference identity nor the IUnknown pointer repeats), and a session whose player has exited keeps answering queries for a short while after it has left the enumeration. Identity is therefore inferred:
+
+1. For each enumerated session, read a `SessionFingerprint` (timeline start/end/position/last-updated, playback status, shuffle, repeat) and compare it with the fingerprint each existing wrapper of the same AUMID reads from its own object at the same instant. Equal fingerprints mean the same underlying session: the wrapper, and its ID, survive. A mismatch is re-read once in case a playing session published between the two reads. Identical fingerprints among duplicates (two idle sessions with no timeline) resolve positionally.
+2. Matching runs over the whole enumeration first; only then does each unmatched session get a new wrapper with the **lowest ordinal not held by a surviving wrapper** of that AUMID (or by a newcomer numbered just before it). Numbering after all matches matters because `GetSessions()` gives no ordering guarantee: a newcomer enumerated before a survivor would otherwise take the survivor's ordinal and produce two wrappers with the same ID.
+3. A wrapper that matches nothing is disposed, even if its object still answers.
+
+Consequences: a surviving session never changes ID when a duplicate (a second browser window) leaves; an ID is only reused after its previous holder is gone; `Sessions` keeps surviving sessions in their existing order and appends newcomers, so the list changes exactly when `SessionsChanged` is raised; `SystemCurrent` is resolved by the same fingerprint match, so a duplicate never steals the "current" marker from its sibling. Reconciles are serialised on the `MediaDispatcher`; a `SessionsChanged` that arrives mid-reconcile queues one more pass instead of interleaving.
 
 ## Core Audio matching
 
