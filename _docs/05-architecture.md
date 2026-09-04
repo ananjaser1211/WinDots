@@ -121,7 +121,9 @@ Evaluated on every `SessionsChanged` / `Updated`; the highest score wins, ties b
 | Paused | +20 |
 | Stopped / unknown | 0 |
 
-`SelectionReason` is exposed for diagnostics ("Pinned by user", "Playing", "Windows default").
+A stale session (`SessionQuality.IsStale`) is ranked below every non-stale session regardless of its score, and is chosen only when no non-stale candidate exists. Ties break by the most recent `CapturedAt`, then stably by session `Id`. `SelectionReason` reports the highest-weight rule that applied to the winner (`PinnedByUser`, `PreferredPlayer`, `Playing`, `RecentActivity`, `SystemCurrent`, `Paused`, or `OnlyCandidate` when no positive rule applied); it is exposed for diagnostics ("Pinned by user", "Playing", "Windows default").
+
+`SessionCoordinator` (`WinDots.Core/Media`) implements `ISessionCoordinator`. It subscribes to the provider's `SessionsChanged` and `SystemCurrentChanged` and to each session's `Updated`, re-evaluating on any of them and reconciling per-session subscriptions as the set changes (handlers are never leaked; `Dispose` unsubscribes everything). `Pin(sessionId)` sticks until that session disappears from the unignored set, then reverts to automatic; `ClearPin` reverts immediately. `Candidates` is the unignored session set in ranked order, for the player chooser, with a `CandidatesChanged` event; `ActiveChanged` fires only when `Active` or `Reason` actually changes. State is guarded by a lock; events are raised on the calling thread (the provider callback thread, or the `Pin`/`ClearPin` caller) outside the lock, so consumers marshal as needed. `MediaOptions` carries `PreferredPlayer`, `IgnoredPlayers`, `PlayerAliases` (with an `AliasFor` helper matching an exact AUMID or a case-insensitive substring of the AUMID or display name), `TimelineTickMs` (500), and `RecentActivityWindow` (30 s).
 
 ## Drawer gesture (`WinDots.Core/Drawer`)
 
