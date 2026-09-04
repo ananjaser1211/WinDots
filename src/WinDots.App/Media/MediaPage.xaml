@@ -117,7 +117,7 @@
                     DotDiameter="3.5"
                     Progress="{x:Bind ViewModel.Progress, Mode=OneWay}"
                     AccentBrush="{x:Bind ViewModel.AccentBrush}"
-                    TrackBrush="{ThemeResource WdOutlineBrush}"
+                    TrackBrush="{ThemeResource WdRingTrackBrush}"
                     Visibility="{x:Bind RingVisible(ViewModel.IsEmpty, ViewModel.Duration, ViewModel.VisualiserActive, ViewModel.VisualiserStyle, ViewModel.VisualiserPlacement), Mode=OneWay}" />
                 <controls:BlobArtwork
                     x:Name="Artwork"
@@ -185,6 +185,7 @@
                 <controls:SeekBar
                     x:Name="Seek"
                     Margin="0,6,0,0"
+                    AccentBrush="{x:Bind ViewModel.AccentBrush}"
                     Position="{x:Bind ViewModel.Position, Mode=OneWay}"
                     Duration="{x:Bind ViewModel.Duration, Mode=OneWay}"
                     CanSeek="{x:Bind ViewModel.CanSeek, Mode=OneWay}"
@@ -247,6 +248,8 @@
                         SmallChange="2"
                         StepFrequency="1"
                         VerticalAlignment="Center"
+                        Style="{StaticResource WdAccentSliderStyle}"
+                        Foreground="{x:Bind ViewModel.AccentBrush}"
                         Value="{x:Bind ViewModel.VolumeLevel, Mode=OneWay}"
                         ValueChanged="OnVolumeSliderChanged"
                         AutomationProperties.Name="Volume" />

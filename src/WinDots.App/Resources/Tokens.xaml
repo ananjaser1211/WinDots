@@ -15,8 +15,12 @@
             <SolidColorBrush x:Key="WdOnSurfaceBrush" Color="#E6EAEC" />
             <SolidColorBrush x:Key="WdOnSurfaceMutedBrush" Color="#9AA3A7" />
             <SolidColorBrush x:Key="WdOutlineBrush" Color="#2C3336" />
+            <!-- Unfilled dots of the progress ring: raised above the hairline outline so the ring reads over acrylic. -->
+            <SolidColorBrush x:Key="WdRingTrackBrush" Color="#59646A" />
             <SolidColorBrush x:Key="WdAccentBrush" Color="#8FD3C8" />
             <SolidColorBrush x:Key="WdOnAccentBrush" Color="#101416" />
+            <!-- Transparent outside high contrast: the scrim overlay carries hover/press feedback in normal themes. -->
+            <SolidColorBrush x:Key="WdButtonHcBorderBrush" Color="Transparent" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
             <SolidColorBrush x:Key="WdSurfaceBrush" Color="#F4F6F7" />
@@ -24,8 +28,12 @@
             <SolidColorBrush x:Key="WdOnSurfaceBrush" Color="#1A1F22" />
             <SolidColorBrush x:Key="WdOnSurfaceMutedBrush" Color="#5B6569" />
             <SolidColorBrush x:Key="WdOutlineBrush" Color="#D6DBDE" />
+            <!-- Unfilled dots of the progress ring: darker than the hairline outline so the ring reads over acrylic. -->
+            <SolidColorBrush x:Key="WdRingTrackBrush" Color="#A2ABAF" />
             <SolidColorBrush x:Key="WdAccentBrush" Color="#1F7A6E" />
             <SolidColorBrush x:Key="WdOnAccentBrush" Color="#FFFFFF" />
+            <!-- Transparent outside high contrast: the scrim overlay carries hover/press feedback in normal themes. -->
+            <SolidColorBrush x:Key="WdButtonHcBorderBrush" Color="Transparent" />
         </ResourceDictionary>
         <!-- High contrast: every Wd* token maps to a system colour so the drawer honours the user's HC scheme. -->
         <ResourceDictionary x:Key="HighContrast">
@@ -34,8 +42,11 @@
             <SolidColorBrush x:Key="WdOnSurfaceBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="WdOnSurfaceMutedBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="WdOutlineBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="WdRingTrackBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="WdAccentBrush" Color="{ThemeResource SystemColorHighlightColor}" />
             <SolidColorBrush x:Key="WdOnAccentBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
+            <!-- High contrast: a visible highlight outline on hover/press, since the low-opacity scrim is imperceptible. -->
+            <SolidColorBrush x:Key="WdButtonHcBorderBrush" Color="{ThemeResource SystemColorHighlightColor}" />
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
 
@@ -96,5 +107,311 @@
     <x:Double x:Key="WdMotionFastMs">120</x:Double>
     <x:Double x:Key="WdMotionBaseMs">250</x:Double>
     <x:Double x:Key="WdMotionSlowMs">400</x:Double>
+
+    <!-- Accent slider (volume, seek): the filled track and thumb follow the control's Foreground, which each instance
+         binds to the per-artwork palette accent (ViewModel.AccentBrush). The unfilled track stays a muted outline
+         brush. Theme- and high-contrast-aware because both brushes resolve through the theme dictionaries / the
+         per-artwork accent (which the view-model recomputes with contrast floors on theme and HC changes). -->
+    <Style x:Key="WdAccentSliderThumbStyle" TargetType="Thumb">
+        <Setter Property="Background" Value="{ThemeResource WdAccentBrush}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Thumb">
+                    <Ellipse Width="18" Height="18" Fill="{TemplateBinding Background}" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="WdAccentSliderStyle" TargetType="Slider">
+        <Setter Property="Background" Value="{ThemeResource WdOutlineBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource WdAccentBrush}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="ManipulationMode" Value="None" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="FocusVisualMargin" Value="-4,0,-4,0" />
+        <Setter Property="IsFocusEngagementEnabled" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Slider">
+                    <Grid Margin="{TemplateBinding Padding}">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <ContentPresenter
+                            x:Name="HeaderContentPresenter"
+                            Grid.Row="0"
+                            Margin="0,0,0,4"
+                            Content="{TemplateBinding Header}"
+                            ContentTemplate="{TemplateBinding HeaderTemplate}"
+                            Foreground="{ThemeResource WdOnSurfaceBrush}"
+                            Visibility="Collapsed" />
+                        <Grid
+                            x:Name="SliderContainer"
+                            Grid.Row="1"
+                            Background="Transparent"
+                            Control.IsTemplateFocusTarget="True">
+                            <VisualStateManager.VisualStateGroups>
+                                <VisualStateGroup x:Name="CommonStates">
+                                    <VisualState x:Name="Normal" />
+                                    <VisualState x:Name="PointerOver">
+                                        <Storyboard>
+                                            <DoubleAnimation
+                                                Storyboard.TargetName="ThumbScale"
+                                                Storyboard.TargetProperty="ScaleX"
+                                                To="1.2"
+                                                Duration="0:0:0.12" />
+                                            <DoubleAnimation
+                                                Storyboard.TargetName="ThumbScale"
+                                                Storyboard.TargetProperty="ScaleY"
+                                                To="1.2"
+                                                Duration="0:0:0.12" />
+                                        </Storyboard>
+                                    </VisualState>
+                                    <VisualState x:Name="Pressed">
+                                        <Storyboard>
+                                            <DoubleAnimation
+                                                Storyboard.TargetName="ThumbScale"
+                                                Storyboard.TargetProperty="ScaleX"
+                                                To="0.86"
+                                                Duration="0:0:0.12" />
+                                            <DoubleAnimation
+                                                Storyboard.TargetName="ThumbScale"
+                                                Storyboard.TargetProperty="ScaleY"
+                                                To="0.86"
+                                                Duration="0:0:0.12" />
+                                        </Storyboard>
+                                    </VisualState>
+                                    <VisualState x:Name="Disabled">
+                                        <Storyboard>
+                                            <DoubleAnimation
+                                                Storyboard.TargetName="SliderContainer"
+                                                Storyboard.TargetProperty="Opacity"
+                                                To="0.4"
+                                                Duration="0" />
+                                        </Storyboard>
+                                    </VisualState>
+                                </VisualStateGroup>
+                            </VisualStateManager.VisualStateGroups>
+                            <Grid x:Name="HorizontalTemplate" MinHeight="32">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <Rectangle
+                                    x:Name="HorizontalTrackRect"
+                                    Grid.Row="1"
+                                    Grid.ColumnSpan="3"
+                                    Height="4"
+                                    RadiusX="2"
+                                    RadiusY="2"
+                                    Fill="{TemplateBinding Background}" />
+                                <Rectangle
+                                    x:Name="HorizontalDecreaseRect"
+                                    Grid.Row="1"
+                                    Grid.Column="0"
+                                    Height="4"
+                                    RadiusX="2"
+                                    RadiusY="2"
+                                    Fill="{TemplateBinding Foreground}" />
+                                <Thumb
+                                    x:Name="HorizontalThumb"
+                                    Grid.Row="0"
+                                    Grid.RowSpan="3"
+                                    Grid.Column="1"
+                                    Width="18"
+                                    Height="18"
+                                    AutomationProperties.AccessibilityView="Raw"
+                                    Background="{TemplateBinding Foreground}"
+                                    DataContext="{TemplateBinding Value}"
+                                    RenderTransformOrigin="0.5,0.5"
+                                    Style="{StaticResource WdAccentSliderThumbStyle}">
+                                    <Thumb.RenderTransform>
+                                        <ScaleTransform x:Name="ThumbScale" />
+                                    </Thumb.RenderTransform>
+                                </Thumb>
+                            </Grid>
+                        </Grid>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Accent button (transport play/pause): keeps its accent Background through every state, tinting with a soft
+         on-surface scrim on hover/press rather than swapping to the system button brushes (which would drop the
+         accent identity). Focus uses the system focus visual. -->
+    <Style x:Key="WdAccentButtonStyle" TargetType="Button">
+        <Setter Property="Foreground" Value="{ThemeResource WdOnAccentBrush}" />
+        <Setter Property="Background" Value="{ThemeResource WdAccentBrush}" />
+        <Setter Property="CornerRadius" Value="{StaticResource RadiusMedium}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Grid
+                        x:Name="Root"
+                        Background="{TemplateBinding Background}"
+                        CornerRadius="{TemplateBinding CornerRadius}">
+                        <Border
+                            x:Name="Overlay"
+                            Background="{ThemeResource WdOnSurfaceBrush}"
+                            BorderBrush="{ThemeResource WdButtonHcBorderBrush}"
+                            BorderThickness="0"
+                            CornerRadius="{TemplateBinding CornerRadius}"
+                            Opacity="0" />
+                        <ContentPresenter
+                            x:Name="ContentPresenter"
+                            Padding="{TemplateBinding Padding}"
+                            HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                            VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                            Content="{TemplateBinding Content}"
+                            ContentTemplate="{TemplateBinding ContentTemplate}"
+                            Foreground="{TemplateBinding Foreground}" />
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver">
+                                    <Storyboard>
+                                        <DoubleAnimation
+                                            Storyboard.TargetName="Overlay"
+                                            Storyboard.TargetProperty="Opacity"
+                                            To="0.10"
+                                            Duration="0:0:0.12" />
+                                        <!-- HC only: the border brush is transparent outside high contrast, so this is
+                                             the perceptible hover cue for HC users while the scrim covers normal themes. -->
+                                        <ObjectAnimationUsingKeyFrames
+                                            Storyboard.TargetName="Overlay"
+                                            Storyboard.TargetProperty="BorderThickness">
+                                            <DiscreteObjectKeyFrame KeyTime="0" Value="2" />
+                                        </ObjectAnimationUsingKeyFrames>
+                                    </Storyboard>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <Storyboard>
+                                        <DoubleAnimation
+                                            Storyboard.TargetName="Overlay"
+                                            Storyboard.TargetProperty="Opacity"
+                                            To="0.20"
+                                            Duration="0:0:0.12" />
+                                        <ObjectAnimationUsingKeyFrames
+                                            Storyboard.TargetName="Overlay"
+                                            Storyboard.TargetProperty="BorderThickness">
+                                            <DiscreteObjectKeyFrame KeyTime="0" Value="2" />
+                                        </ObjectAnimationUsingKeyFrames>
+                                    </Storyboard>
+                                </VisualState>
+                                <VisualState x:Name="Disabled">
+                                    <Storyboard>
+                                        <DoubleAnimation
+                                            Storyboard.TargetName="Root"
+                                            Storyboard.TargetProperty="Opacity"
+                                            To="0.4"
+                                            Duration="0" />
+                                    </Storyboard>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Tonal button (transport shuffle/prev/next/repeat): a raised surface tile that keeps its palette background
+         through hover/press via the same on-surface scrim, so the transport row reads as one system. -->
+    <Style x:Key="WdTonalButtonStyle" TargetType="Button">
+        <Setter Property="Width" Value="36" />
+        <Setter Property="Height" Value="36" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="CornerRadius" Value="{StaticResource RadiusMedium}" />
+        <Setter Property="Background" Value="{ThemeResource WdSurfaceRaisedBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource WdOnSurfaceBrush}" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Grid
+                        x:Name="Root"
+                        Background="{TemplateBinding Background}"
+                        CornerRadius="{TemplateBinding CornerRadius}">
+                        <Border
+                            x:Name="Overlay"
+                            Background="{ThemeResource WdOnSurfaceBrush}"
+                            BorderBrush="{ThemeResource WdButtonHcBorderBrush}"
+                            BorderThickness="0"
+                            CornerRadius="{TemplateBinding CornerRadius}"
+                            Opacity="0" />
+                        <ContentPresenter
+                            x:Name="ContentPresenter"
+                            Padding="{TemplateBinding Padding}"
+                            HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                            VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                            Content="{TemplateBinding Content}"
+                            ContentTemplate="{TemplateBinding ContentTemplate}"
+                            Foreground="{TemplateBinding Foreground}" />
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver">
+                                    <Storyboard>
+                                        <DoubleAnimation
+                                            Storyboard.TargetName="Overlay"
+                                            Storyboard.TargetProperty="Opacity"
+                                            To="0.08"
+                                            Duration="0:0:0.12" />
+                                        <!-- HC only: the border brush is transparent outside high contrast, so this is
+                                             the perceptible hover cue for HC users while the scrim covers normal themes. -->
+                                        <ObjectAnimationUsingKeyFrames
+                                            Storyboard.TargetName="Overlay"
+                                            Storyboard.TargetProperty="BorderThickness">
+                                            <DiscreteObjectKeyFrame KeyTime="0" Value="2" />
+                                        </ObjectAnimationUsingKeyFrames>
+                                    </Storyboard>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <Storyboard>
+                                        <DoubleAnimation
+                                            Storyboard.TargetName="Overlay"
+                                            Storyboard.TargetProperty="Opacity"
+                                            To="0.16"
+                                            Duration="0:0:0.12" />
+                                        <ObjectAnimationUsingKeyFrames
+                                            Storyboard.TargetName="Overlay"
+                                            Storyboard.TargetProperty="BorderThickness">
+                                            <DiscreteObjectKeyFrame KeyTime="0" Value="2" />
+                                        </ObjectAnimationUsingKeyFrames>
+                                    </Storyboard>
+                                </VisualState>
+                                <VisualState x:Name="Disabled">
+                                    <Storyboard>
+                                        <DoubleAnimation
+                                            Storyboard.TargetName="Root"
+                                            Storyboard.TargetProperty="Opacity"
+                                            To="0.4"
+                                            Duration="0" />
+                                    </Storyboard>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
 
 </ResourceDictionary>

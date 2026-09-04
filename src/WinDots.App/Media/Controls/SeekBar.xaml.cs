@@ -32,6 +32,12 @@ public sealed partial class SeekBar : UserControl
         typeof(SeekBar),
         new PropertyMetadata(false, OnCanSeekChanged));
 
+    public static readonly DependencyProperty AccentBrushProperty = DependencyProperty.Register(
+        nameof(AccentBrush),
+        typeof(Microsoft.UI.Xaml.Media.Brush),
+        typeof(SeekBar),
+        new PropertyMetadata(null));
+
     private static readonly TimeSpan SmallSeek = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan LargeSeek = TimeSpan.FromSeconds(30);
 
@@ -64,6 +70,13 @@ public sealed partial class SeekBar : UserControl
     {
         get => (TimeSpan?)GetValue(DurationProperty);
         set => SetValue(DurationProperty, value);
+    }
+
+    /// <summary>Per-artwork palette accent used for the filled track and thumb of the seek slider.</summary>
+    public Microsoft.UI.Xaml.Media.Brush? AccentBrush
+    {
+        get => (Microsoft.UI.Xaml.Media.Brush?)GetValue(AccentBrushProperty);
+        set => SetValue(AccentBrushProperty, value);
     }
 
     /// <summary>Whether seeking is allowed; false gives a read-only look.</summary>

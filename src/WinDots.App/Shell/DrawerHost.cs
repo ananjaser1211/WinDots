@@ -17,6 +17,7 @@ using WinDots.Core.Lyrics;
 using WinDots.Core.Media;
 using WinDots.Core.Settings;
 using WinDots.Core.Visualiser;
+using WinDots.Windows.AppIcons;
 using WinDots.Windows.Audio;
 using WinDots.Windows.Security;
 
@@ -46,6 +47,7 @@ public sealed class DrawerHost
     private readonly LyricsCache _lyricsCache;
     private readonly LyricsOffsetStore _lyricsOffsets;
     private readonly LastFmService _lastFm;
+    private readonly AppIconProvider _appIcons;
     private readonly MediaViewModel _viewModel;
     private readonly DrawerWindow _drawer;
     private readonly List<HandleWindow> _handles = new();
@@ -147,9 +149,12 @@ public sealed class DrawerHost
         _lastFm = new LastFmService(new CredentialManagerSecretStore(), _httpHandler, _coordinator, _dispatcher, scrobbleQueuePath);
         _ = _lastFm.InitializeAsync(current.LastFm, CancellationToken.None);
 
+        // Per-app chooser icons: resolves each player's real icon (package logo or executable icon) off the UI thread.
+        _appIcons = new AppIconProvider();
+
         _viewModel = new MediaViewModel(
             _coordinator, provider, _artworkCache, mediaOptions, _dispatcher, audio,
-            _lyricsProvider, _lyricsCache, _lyricsOffsets);
+            _lyricsProvider, _lyricsCache, _lyricsOffsets, _appIcons);
         _viewModel.CommandInvoked += OnCommandInvoked;
         _viewModel.LyricsEnableRequested += OnLyricsEnableRequested;
         _viewModel.UpdateLyricsSettings(current.Lyrics.Provider, current.Lyrics.OffsetMs);

@@ -19,7 +19,10 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <FontIcon Grid.Column="0" Glyph="&#xE7F4;" FontSize="16" Foreground="{x:Bind AccentBrush, Mode=OneWay}" />
+            <Grid Grid.Column="0" Width="16" Height="16" VerticalAlignment="Center">
+                <FontIcon x:Name="PillGlyph" Glyph="&#xE7F4;" FontSize="16" Foreground="{x:Bind AccentBrush, Mode=OneWay}" />
+                <Image x:Name="PillIcon" Width="16" Height="16" Visibility="Collapsed" />
+            </Grid>
             <TextBlock
                 x:Name="LabelText"
                 Grid.Column="1"

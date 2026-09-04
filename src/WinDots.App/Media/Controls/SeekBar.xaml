@@ -27,6 +27,8 @@
             Maximum="1"
             StepFrequency="1"
             VerticalAlignment="Center"
+            Style="{StaticResource WdAccentSliderStyle}"
+            Foreground="{x:Bind AccentBrush, Mode=OneWay}"
             automation:AutomationProperties.Name="Seek"
             ValueChanged="OnValueChanged"
             PointerCaptureLost="OnCommit"

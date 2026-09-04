@@ -42,6 +42,10 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
     private const int ArtworkMaxBytes = 8 * 1024 * 1024;
     private const int ArtworkDecodeWidth = 440;
 
+    // Chooser/source icons render in a 16x16 pill slot or a menu ImageIcon; decode them small rather than reusing the
+    // 440 px artwork width (which upscales a ~64 px icon to a blurry 440x440 bitmap and wastes decoded memory).
+    private const int IconDecodeWidth = 48;
+
     // Palette extraction decodes a fixed 64x64 BGRA copy (see _docs/04-visual-design.md); WdMotionSlowMs is the
     // 400 ms colour cross-fade for the palette transition.
     private const int PaletteDim = 64;
@@ -57,6 +61,12 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
     private readonly IMediaSessionProvider _provider;
     private readonly IArtworkCache _artworkCache;
     private readonly IAudioSessionProvider? _audio;
+    private readonly IAppIconProvider? _iconProvider;
+
+    // Resolved per-app chooser icons, keyed by SourceAppId. A resolved-but-null entry (miss) is not stored so a
+    // player is re-probed on a later rebuild; a resolved ImageSource is cached for the life of the view-model.
+    private readonly Dictionary<string, ImageSource> _iconCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _iconPending = new(StringComparer.OrdinalIgnoreCase);
     private MediaOptions _options;
     private readonly DispatcherQueue _dispatcher;
     private readonly DispatcherQueueTimer _timelineTimer;
@@ -167,7 +177,8 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
         IAudioSessionProvider? audio = null,
         ILyricsProvider? lyricsProvider = null,
         LyricsCache? lyricsCache = null,
-        LyricsOffsetStore? offsetStore = null)
+        LyricsOffsetStore? offsetStore = null,
+        IAppIconProvider? iconProvider = null)
     {
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
@@ -175,6 +186,7 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _audio = audio;
+        _iconProvider = iconProvider;
         _lyricsProvider = lyricsProvider;
         _lyricsCache = lyricsCache;
         _offsetStore = offsetStore;
@@ -1139,15 +1151,67 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
             MediaSnapshot snapshot = candidate.Current;
             string label = _options.AliasFor(snapshot.SourceAppId, snapshot.SourceDisplayName);
             string verdict = verdicts.TryGetValue(candidate.Id, out MusicVerdict v) ? v.Reason : string.Empty;
+            string appId = snapshot.SourceAppId;
+            _iconCache.TryGetValue(appId, out ImageSource? icon);
             items.Add(new PlayerChooserItem(
                 candidate.Id,
                 label,
                 StateText(snapshot.State),
                 ReferenceEquals(candidate, active),
-                verdict));
+                verdict,
+                icon));
+
+            if (icon is null)
+            {
+                ResolveChooserIcon(appId);
+            }
         }
 
         ChooserItems = items;
+    }
+
+    /// <summary>
+    /// Resolves a source application's icon off the UI thread, decodes it on the UI thread, caches it by app id, and
+    /// rebuilds the chooser so the new icon appears. Fire-and-forget; failures leave the generic glyph in place.
+    /// </summary>
+    private void ResolveChooserIcon(string appId)
+    {
+        if (_iconProvider is null || string.IsNullOrEmpty(appId) || !_iconPending.Add(appId))
+        {
+            return;
+        }
+
+        _ = ResolveChooserIconAsync(appId);
+    }
+
+    private async Task ResolveChooserIconAsync(string appId)
+    {
+        try
+        {
+            byte[]? bytes = await Task.Run(() => _iconProvider!.GetIconAsync(appId, CancellationToken.None)).ConfigureAwait(true);
+            if (_disposed)
+            {
+                return;
+            }
+
+            ImageSource? image = bytes is { Length: > 0 } ? await DecodeAsync(bytes, IconDecodeWidth, CancellationToken.None).ConfigureAwait(true) : null;
+            if (_disposed)
+            {
+                return;
+            }
+
+            _iconPending.Remove(appId);
+            if (image is not null)
+            {
+                _iconCache[appId] = image;
+                RebuildChooser();
+            }
+        }
+        catch (Exception ex)
+        {
+            _iconPending.Remove(appId);
+            ShellLog.Write($"app icon: resolve failed for source ({ex.GetType().Name})");
+        }
     }
 
     private void RefreshChooserLabel()
@@ -1227,7 +1291,7 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
             }
 
             byte[] raw = cached.Bytes.ToArray();
-            BitmapImage? image = await DecodeAsync(raw, ct).ConfigureAwait(true);
+            BitmapImage? image = await DecodeAsync(raw, ArtworkDecodeWidth, ct).ConfigureAwait(true);
 
             if (ct.IsCancellationRequested || !string.Equals(key, _artworkKey, StringComparison.Ordinal))
             {
@@ -1260,14 +1324,14 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private static async Task<BitmapImage?> DecodeAsync(byte[] bytes, CancellationToken ct)
+    private static async Task<BitmapImage?> DecodeAsync(byte[] bytes, int decodePixelWidth, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         using var stream = new InMemoryRandomAccessStream();
         await stream.WriteAsync(bytes.AsBuffer());
         stream.Seek(0);
 
-        var image = new BitmapImage { DecodePixelWidth = ArtworkDecodeWidth };
+        var image = new BitmapImage { DecodePixelWidth = decodePixelWidth };
         await image.SetSourceAsync(stream);
         return image;
     }

@@ -14,7 +14,8 @@ namespace WinDots.App.Media.Controls;
 /// <param name="StateText">Secondary state text (e.g. "Playing").</param>
 /// <param name="IsActive">Whether this is the currently active player.</param>
 /// <param name="Verdict">The music detector's verdict caption (e.g. "music" or "not music: video title").</param>
-public sealed record PlayerChooserItem(string Id, string Label, string StateText, bool IsActive, string Verdict = "");
+/// <param name="Icon">The resolved per-application icon, or null to fall back to the generic glyph.</param>
+public sealed record PlayerChooserItem(string Id, string Label, string StateText, bool IsActive, string Verdict = "", ImageSource? Icon = null);
 
 /// <summary>
 /// A pill button showing the active player with a chevron that opens a menu of the available players plus an
@@ -26,7 +27,7 @@ public sealed partial class PlayerChooser : UserControl
         nameof(Items),
         typeof(IReadOnlyList<PlayerChooserItem>),
         typeof(PlayerChooser),
-        new PropertyMetadata(null));
+        new PropertyMetadata(null, OnItemsChanged));
 
     public static readonly DependencyProperty ActiveLabelProperty = DependencyProperty.Register(
         nameof(ActiveLabel),
@@ -90,6 +91,41 @@ public sealed partial class PlayerChooser : UserControl
     {
         var chooser = (PlayerChooser)d;
         chooser.LabelText.Text = e.NewValue as string ?? "Automatic";
+        chooser.RefreshPillIcon();
+    }
+
+    private static void OnItemsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) =>
+        ((PlayerChooser)d).RefreshPillIcon();
+
+    /// <summary>Shows the active player's resolved icon on the pill, falling back to the generic glyph when none.</summary>
+    private void RefreshPillIcon()
+    {
+        ImageSource? icon = null;
+        IReadOnlyList<PlayerChooserItem>? items = Items;
+        if (items is not null)
+        {
+            foreach (PlayerChooserItem item in items)
+            {
+                if (item.IsActive)
+                {
+                    icon = item.Icon;
+                    break;
+                }
+            }
+        }
+
+        if (icon is not null)
+        {
+            PillIcon.Source = icon;
+            PillIcon.Visibility = Visibility.Visible;
+            PillGlyph.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            PillIcon.Source = null;
+            PillIcon.Visibility = Visibility.Collapsed;
+            PillGlyph.Visibility = Visibility.Visible;
+        }
     }
 
     private void OnMenuOpening(object? sender, object e)
@@ -105,7 +141,9 @@ public sealed partial class PlayerChooser : UserControl
                 {
                     Text = string.IsNullOrEmpty(item.StateText) ? item.Label : $"{item.Label} — {item.StateText}",
                     Tag = item.Id,
-                    Icon = item.IsActive ? new FontIcon { Glyph = "" } : null,
+                    Icon = item.IsActive
+                        ? new FontIcon { Glyph = "" }
+                        : item.Icon is not null ? new ImageIcon { Source = item.Icon } : null,
                 };
                 if (!string.IsNullOrEmpty(item.Verdict))
                 {
