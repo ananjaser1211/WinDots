@@ -2,6 +2,8 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using WinDots.Core.Contracts;
+using WinDots.Core.Settings;
 
 namespace WinDots.App.Shell;
 
@@ -20,6 +22,7 @@ internal sealed class ShellMessageWindow : IDisposable
     // Context-menu command ids (WM_COMMAND wParam low word).
     private const int CmdOpenDrawer = 100;
     private const int CmdInspector = 101;
+    private const int CmdSettings = 103;
     private const int CmdQuit = 102;
 
     private readonly NativeInterop.WndProcDelegate _wndProc; // Kept alive for the window's lifetime.
@@ -36,13 +39,16 @@ internal sealed class ShellMessageWindow : IDisposable
     public const int CommandPlayPause = 7;
     public const int CommandNextCandidate = 8;
     public const int CommandSeekForward = 9;
+    public const int CommandOpenSettings = 10;
 
     private readonly string _className = ClassName;
+    private readonly ISettingsStore _settings;
     private readonly Action _onToggleAtCursor;
     private readonly Action<int> _onToggleOnMonitor;
     private readonly Action _onDismiss;
     private readonly Action _onDumpState;
     private readonly Action _onShowInspector;
+    private readonly Action _onShowSettings;
     private readonly Action _onQuit;
     private readonly Action _onPlayPause;
     private readonly Action _onNextCandidate;
@@ -56,21 +62,25 @@ internal sealed class ShellMessageWindow : IDisposable
     private bool _disposed;
 
     public ShellMessageWindow(
+        ISettingsStore settings,
         Action onToggleAtCursor,
         Action<int> onToggleOnMonitor,
         Action onDismiss,
         Action onDumpState,
         Action onShowInspector,
+        Action onShowSettings,
         Action onQuit,
         Action onPlayPause,
         Action onNextCandidate,
         Action onSeekForward)
     {
+        _settings = settings;
         _onToggleAtCursor = onToggleAtCursor;
         _onToggleOnMonitor = onToggleOnMonitor;
         _onDismiss = onDismiss;
         _onDumpState = onDumpState;
         _onShowInspector = onShowInspector;
+        _onShowSettings = onShowSettings;
         _onQuit = onQuit;
         _onPlayPause = onPlayPause;
         _onNextCandidate = onNextCandidate;
@@ -80,6 +90,9 @@ internal sealed class ShellMessageWindow : IDisposable
         CreateWindow();
         RegisterHotkey();
         AddTrayIcon();
+
+        // Live-react to a changed toggle shortcut: unregister and re-register from the new value.
+        _settings.Changed += OnSettingsChanged;
     }
 
     public nint Handle => _hwnd;
@@ -129,17 +142,79 @@ internal sealed class ShellMessageWindow : IDisposable
             return;
         }
 
-        // Win+Shift+M, parsed from the constant for now; the configurable store arrives in M5.
-        _hotkeyRegistered = NativeInterop.RegisterHotKey(
-            _hwnd, HotkeyId,
-            NativeInterop.MOD_WIN | NativeInterop.MOD_SHIFT | NativeInterop.MOD_NOREPEAT,
-            NativeInterop.VK_M);
+        if (_hotkeyRegistered)
+        {
+            _ = NativeInterop.UnregisterHotKey(_hwnd, HotkeyId);
+            _hotkeyRegistered = false;
+        }
 
-        if (!_hotkeyRegistered)
+        // The chord comes from drawer.toggleShortcut; on a parse failure fall back to Win+Shift+M and log it.
+        string configured = _settings.Current.Drawer.ToggleShortcut;
+        Shortcut chord;
+        if (ShortcutParser.TryParse(configured, out Shortcut? parsed))
+        {
+            chord = parsed;
+        }
+        else
+        {
+            chord = new Shortcut(ShortcutModifiers.Win | ShortcutModifiers.Shift, (int)NativeInterop.VK_M);
+            WinDots.App.Diagnostics.ShellLog.Write($"hotkey: '{configured}' is not a valid shortcut; falling back to Win+Shift+M");
+        }
+
+        uint mods = ToWin32Modifiers(chord.Modifiers) | NativeInterop.MOD_NOREPEAT;
+        _hotkeyRegistered = NativeInterop.RegisterHotKey(_hwnd, HotkeyId, mods, (uint)chord.Key);
+
+        if (_hotkeyRegistered)
+        {
+            WinDots.App.Diagnostics.ShellLog.Write($"hotkey registered: {ShortcutParser.Format(chord)}");
+        }
+        else
         {
             // Another app may already own the combination; log and keep running.
-            Debug.WriteLine($"ShellMessageWindow: RegisterHotKey Win+Shift+M failed ({Marshal.GetLastWin32Error()}); hotkey disabled.");
+            WinDots.App.Diagnostics.ShellLog.Write(
+                $"hotkey: RegisterHotKey {ShortcutParser.Format(chord)} failed ({Marshal.GetLastWin32Error()}); hotkey disabled");
         }
+    }
+
+    private static uint ToWin32Modifiers(ShortcutModifiers modifiers)
+    {
+        uint result = 0;
+        if (modifiers.HasFlag(ShortcutModifiers.Win))
+        {
+            result |= NativeInterop.MOD_WIN;
+        }
+
+        if (modifiers.HasFlag(ShortcutModifiers.Ctrl))
+        {
+            result |= NativeInterop.MOD_CONTROL;
+        }
+
+        if (modifiers.HasFlag(ShortcutModifiers.Alt))
+        {
+            result |= NativeInterop.MOD_ALT;
+        }
+
+        if (modifiers.HasFlag(ShortcutModifiers.Shift))
+        {
+            result |= NativeInterop.MOD_SHIFT;
+        }
+
+        return result;
+    }
+
+    private string _lastShortcut = string.Empty;
+
+    private void OnSettingsChanged(object? sender, WinDots.Core.Settings.Settings s)
+    {
+        // Only touch the hotkey when the chord actually changed, so unrelated saves do not churn registration.
+        string shortcut = s.Drawer.ToggleShortcut;
+        if (shortcut == _lastShortcut)
+        {
+            return;
+        }
+
+        _lastShortcut = shortcut;
+        RegisterHotkey();
     }
 
     private void AddTrayIcon()
@@ -260,6 +335,9 @@ internal sealed class ShellMessageWindow : IDisposable
             case CommandSeekForward:
                 SafeInvoke(_onSeekForward);
                 break;
+            case CommandOpenSettings:
+                SafeInvoke(_onShowSettings);
+                break;
             default:
                 break;
         }
@@ -271,6 +349,9 @@ internal sealed class ShellMessageWindow : IDisposable
         {
             case CmdOpenDrawer:
                 SafeInvoke(_onToggleAtCursor);
+                break;
+            case CmdSettings:
+                SafeInvoke(_onShowSettings);
                 break;
             case CmdInspector:
                 SafeInvoke(_onShowInspector);
@@ -294,6 +375,7 @@ internal sealed class ShellMessageWindow : IDisposable
         try
         {
             _ = NativeInterop.AppendMenu(menu, NativeInterop.MF_STRING, (nuint)CmdOpenDrawer, "Open drawer");
+            _ = NativeInterop.AppendMenu(menu, NativeInterop.MF_STRING, (nuint)CmdSettings, "Settings");
             _ = NativeInterop.AppendMenu(menu, NativeInterop.MF_STRING, (nuint)CmdInspector, "Session inspector");
             _ = NativeInterop.AppendMenu(menu, NativeInterop.MF_SEPARATOR, 0, null);
             _ = NativeInterop.AppendMenu(menu, NativeInterop.MF_STRING, (nuint)CmdQuit, "Quit");

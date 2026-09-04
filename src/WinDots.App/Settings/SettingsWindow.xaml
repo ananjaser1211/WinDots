@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="WinDots.App.Settings.SettingsWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    Title="WinDots settings">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <muxc:NavigationView
+            x:Name="Nav"
+            Grid.Row="0"
+            IsBackButtonVisible="Collapsed"
+            IsSettingsVisible="False"
+            PaneDisplayMode="Left"
+            OpenPaneLength="200"
+            AutomationProperties.Name="Settings sections"
+            SelectionChanged="OnSectionChanged">
+            <muxc:NavigationView.MenuItems>
+                <muxc:NavigationViewItem Content="Drawer" Tag="Drawer" IsSelected="True" />
+                <muxc:NavigationViewItem Content="Media" Tag="Media" />
+                <muxc:NavigationViewItem Content="Appearance" Tag="Appearance" />
+                <muxc:NavigationViewItem Content="Monitors" Tag="Monitors" />
+                <muxc:NavigationViewItem Content="Privacy" Tag="Privacy" />
+                <muxc:NavigationViewItem Content="Diagnostics" Tag="Diagnostics" />
+                <muxc:NavigationViewItem Content="Startup" Tag="Startup" />
+            </muxc:NavigationView.MenuItems>
+
+            <ScrollViewer Padding="24" VerticalScrollBarVisibility="Auto">
+                <Grid>
+                    <!-- Drawer -->
+                    <StackPanel x:Name="DrawerSection" Spacing="16">
+                        <TextBlock Text="Drawer" Style="{StaticResource TitleTextBlockStyle}" />
+                        <ToggleSwitch x:Name="DrawerEnabled" Header="Enabled" AutomationProperties.Name="Drawer enabled" />
+                        <ToggleSwitch x:Name="ShowOnHover" Header="Show on hover" AutomationProperties.Name="Show on hover" />
+                        <muxc:NumberBox x:Name="DragThreshold" Header="Drag threshold (px)" SpinButtonPlacementMode="Inline" Minimum="0" Maximum="1000" AutomationProperties.Name="Drag threshold in pixels" />
+                        <StackPanel Spacing="4">
+                            <TextBox x:Name="ToggleShortcut" Header="Toggle shortcut" PlaceholderText="Win+Shift+M" TextChanged="OnShortcutChanged" AutomationProperties.Name="Toggle shortcut" />
+                            <TextBlock x:Name="ShortcutError" Foreground="{ThemeResource SystemFillColorCriticalBrush}" Style="{StaticResource CaptionTextBlockStyle}" Visibility="Collapsed" />
+                        </StackPanel>
+                        <muxc:NumberBox x:Name="AutoHideMs" Header="Auto-hide after inactivity (ms, 0 = never)" SpinButtonPlacementMode="Inline" Minimum="0" Maximum="600000" AutomationProperties.Name="Auto-hide milliseconds" />
+                        <ToggleSwitch x:Name="HideAfterCommand" Header="Hide after a command" AutomationProperties.Name="Hide after command" />
+                        <ToggleSwitch x:Name="HideInFullscreen" Header="Hide while a fullscreen app is active" AutomationProperties.Name="Hide in fullscreen" />
+                        <ToggleSwitch x:Name="AlwaysOnTop" Header="Always on top while open" AutomationProperties.Name="Always on top" />
+                    </StackPanel>
+
+                    <!-- Media -->
+                    <StackPanel x:Name="MediaSection" Spacing="16" Visibility="Collapsed">
+                        <TextBlock Text="Media" Style="{StaticResource TitleTextBlockStyle}" />
+                        <TextBox x:Name="PreferredPlayer" Header="Preferred player (AUMID or exe name)" AutomationProperties.Name="Preferred player" />
+                        <StackPanel Spacing="4">
+                            <TextBox x:Name="IgnoredPlayers" Header="Ignored players (one per line)" AcceptsReturn="True" TextWrapping="Wrap" Height="96" AutomationProperties.Name="Ignored players" />
+                            <TextBlock Text="Sessions from these players are never shown." Style="{StaticResource CaptionTextBlockStyle}" />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
+                            <TextBox x:Name="PlayerAliases" Header="Player aliases (one key=value per line)" AcceptsReturn="True" TextWrapping="Wrap" Height="96" AutomationProperties.Name="Player aliases" />
+                            <TextBlock Text="Example: Spotify.exe=Spotify" Style="{StaticResource CaptionTextBlockStyle}" />
+                        </StackPanel>
+                        <muxc:NumberBox x:Name="TimelineTick" Header="Timeline tick (ms)" SpinButtonPlacementMode="Inline" Minimum="50" Maximum="5000" AutomationProperties.Name="Timeline tick milliseconds" />
+                    </StackPanel>
+
+                    <!-- Appearance -->
+                    <StackPanel x:Name="AppearanceSection" Spacing="16" Visibility="Collapsed">
+                        <TextBlock Text="Appearance" Style="{StaticResource TitleTextBlockStyle}" />
+                        <ComboBox x:Name="Theme" Header="Theme" AutomationProperties.Name="Theme">
+                            <ComboBoxItem Content="Auto" />
+                            <ComboBoxItem Content="Dark" />
+                            <ComboBoxItem Content="Light" />
+                        </ComboBox>
+                        <ComboBox x:Name="Backdrop" Header="Backdrop" AutomationProperties.Name="Backdrop">
+                            <ComboBoxItem Content="Acrylic" />
+                            <ComboBoxItem Content="Opaque" />
+                        </ComboBox>
+                        <muxc:NumberBox x:Name="FontScale" Header="Font scale" SpinButtonPlacementMode="Inline" SmallChange="0.05" Minimum="0.5" Maximum="3" AutomationProperties.Name="Font scale" />
+                        <muxc:NumberBox x:Name="BlobDeform" Header="Blob deform" SpinButtonPlacementMode="Inline" SmallChange="0.05" Minimum="0" Maximum="3" AutomationProperties.Name="Blob deform" />
+                        <ComboBox x:Name="PaletteSource" Header="Palette source" AutomationProperties.Name="Palette source">
+                            <ComboBoxItem Content="Artwork" />
+                            <ComboBoxItem Content="Fixed" />
+                        </ComboBox>
+                        <TextBox x:Name="FixedAccent" Header="Fixed accent (hex, e.g. #8FD3C8)" AutomationProperties.Name="Fixed accent colour" />
+                        <ComboBox x:Name="ReduceMotion" Header="Reduce motion" AutomationProperties.Name="Reduce motion">
+                            <ComboBoxItem Content="System" />
+                            <ComboBoxItem Content="On" />
+                            <ComboBoxItem Content="Off" />
+                        </ComboBox>
+                        <ToggleSwitch x:Name="BackgroundBlobs" Header="Background blobs" AutomationProperties.Name="Background blobs" />
+                    </StackPanel>
+
+                    <!-- Monitors -->
+                    <StackPanel x:Name="MonitorsSection" Spacing="16" Visibility="Collapsed">
+                        <TextBlock Text="Monitors" Style="{StaticResource TitleTextBlockStyle}" />
+                        <ComboBox x:Name="MonitorMode" Header="Show handle on" SelectionChanged="OnMonitorModeChanged" AutomationProperties.Name="Monitor mode">
+                            <ComboBoxItem Content="All monitors" />
+                            <ComboBoxItem Content="Primary monitor" />
+                            <ComboBoxItem Content="Selected monitors" />
+                        </ComboBox>
+                        <StackPanel x:Name="MonitorList" Spacing="8" />
+                        <muxc:NumberBox x:Name="HandleOffset" Header="Handle horizontal position (%)" SpinButtonPlacementMode="Inline" Minimum="0" Maximum="100" AutomationProperties.Name="Handle offset percent" />
+                    </StackPanel>
+
+                    <!-- Privacy -->
+                    <StackPanel x:Name="PrivacySection" Spacing="16" Visibility="Collapsed">
+                        <TextBlock Text="Privacy" Style="{StaticResource TitleTextBlockStyle}" />
+                        <StackPanel Spacing="4">
+                            <ToggleSwitch x:Name="HistoryEnabled" Header="Listening history" IsEnabled="False" AutomationProperties.Name="Listening history" />
+                            <TextBlock Text="Coming later. History collection is not implemented yet." Style="{StaticResource CaptionTextBlockStyle}" />
+                        </StackPanel>
+                        <muxc:NumberBox x:Name="HistoryRetention" Header="History retention (days)" SpinButtonPlacementMode="Inline" Minimum="0" Maximum="3650" AutomationProperties.Name="History retention days" />
+                    </StackPanel>
+
+                    <!-- Diagnostics -->
+                    <StackPanel x:Name="DiagnosticsSection" Spacing="16" Visibility="Collapsed">
+                        <TextBlock Text="Diagnostics" Style="{StaticResource TitleTextBlockStyle}" />
+                        <ComboBox x:Name="LogLevel" Header="Log level" AutomationProperties.Name="Log level">
+                            <ComboBoxItem Content="Warning" />
+                            <ComboBoxItem Content="Info" />
+                            <ComboBoxItem Content="Debug" />
+                        </ComboBox>
+                        <ToggleSwitch x:Name="IncludeMediaText" Header="Include media text in logs" AutomationProperties.Name="Include media text" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="Open log folder" Click="OnOpenLogFolder" AutomationProperties.Name="Open log folder" />
+                            <Button x:Name="ExportDiagnostics" Content="Export diagnostics" IsEnabled="False" AutomationProperties.Name="Export diagnostics" />
+                        </StackPanel>
+                        <TextBlock Text="Export is a placeholder until the packaging milestone." Style="{StaticResource CaptionTextBlockStyle}" />
+                    </StackPanel>
+
+                    <!-- Startup -->
+                    <StackPanel x:Name="StartupSection" Spacing="16" Visibility="Collapsed">
+                        <TextBlock Text="Startup" Style="{StaticResource TitleTextBlockStyle}" />
+                        <StackPanel Spacing="4">
+                            <ToggleSwitch x:Name="StartWithWindows" Header="Start with Windows" Toggled="OnStartupToggled" AutomationProperties.Name="Start with Windows" />
+                            <TextBlock x:Name="StartupNote" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </ScrollViewer>
+        </muxc:NavigationView>
+
+        <Grid Grid.Row="1" Padding="24,12" ColumnSpacing="8" BorderThickness="0,1,0,0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="StatusText" Grid.Column="0" VerticalAlignment="Center" Style="{StaticResource CaptionTextBlockStyle}" />
+            <Button x:Name="RevertButton" Grid.Column="1" Content="Revert" Click="OnRevert" AutomationProperties.Name="Revert changes" />
+            <Button x:Name="SaveButton" Grid.Column="2" Content="Save" Style="{StaticResource AccentButtonStyle}" Click="OnSave" AutomationProperties.Name="Save settings" />
+        </Grid>
+    </Grid>
+</Window>

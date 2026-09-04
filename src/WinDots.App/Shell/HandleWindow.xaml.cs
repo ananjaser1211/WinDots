@@ -29,14 +29,16 @@ public sealed partial class HandleWindow : Window
     private readonly DrawerHost _host;
     private readonly MonitorInfo _monitor;
     private readonly double _originYLogical;
+    private readonly int _offsetPercent;
 
     private Grid _root = null!;
     private bool _capturing;
 
-    public HandleWindow(MonitorInfo monitor, DrawerHost host)
+    public HandleWindow(MonitorInfo monitor, DrawerHost host, int offsetPercent = 50)
     {
         _monitor = monitor;
         _host = host;
+        _offsetPercent = Math.Clamp(offsetPercent, 0, 100);
         InitializeComponent();
 
         _originYLogical = (monitor.WorkArea.Y - monitor.Bounds.Y) / monitor.Scale;
@@ -71,7 +73,7 @@ public sealed partial class HandleWindow : Window
         var scale = monitor.Scale;
         var w = (int)Math.Round(HitWidth * scale);
         var h = (int)Math.Round(HitHeight * scale);
-        var x = (int)Math.Round(monitor.WorkArea.X + ((monitor.WorkArea.Width - w) / 2));
+        var x = (int)Math.Round(monitor.WorkArea.X + ((monitor.WorkArea.Width - w) * (_offsetPercent / 100.0)));
         var y = (int)Math.Round(monitor.WorkArea.Y);
         AppWindow.MoveAndResize(new RectInt32(x, y, w, h));
     }

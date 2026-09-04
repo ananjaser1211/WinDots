@@ -53,7 +53,11 @@ if ($Launch) {
 
 $procs = @(Get-Process WinDots -ErrorAction SilentlyContinue)
 Check 'exactly one WinDots process' ($procs.Count -eq 1)
-$monitorCount = (Get-CimInstance Win32_DesktopMonitor | Where-Object { $_.Status -eq 'OK' }).Count
+# The app logs the monitor count it enumerated ("host ready: monitors=N"); WMI can report displays that are off.
+$monitorCount = 1
+$ready = Get-Content $log -ErrorAction SilentlyContinue | Select-String -Pattern 'host ready: monitors=(\d+)' | Select-Object -Last 1
+if ($ready) { $monitorCount = [int]$ready.Matches[0].Groups[1].Value }
+if (Get-Process LogonUI -ErrorAction SilentlyContinue) { 'NOTE workstation is locked: foreground and pixel checks cannot pass' }
 "handles: $((Handles) -join '; ')"
 Check "one handle per monitor (expected $monitorCount)" (@(Handles).Count -eq $monitorCount)
 Check 'no drawer visible at start' (-not (Drawer))

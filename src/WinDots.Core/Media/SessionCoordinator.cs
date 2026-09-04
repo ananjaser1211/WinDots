@@ -23,7 +23,7 @@ public sealed class SessionCoordinator : ISessionCoordinator
     private const int PausedScore = 20;
 
     private readonly IMediaSessionProvider _provider;
-    private readonly MediaOptions _options;
+    private MediaOptions _options;
     private readonly Func<DateTimeOffset> _now;
     private readonly object _gate = new();
     private readonly HashSet<IMediaSession> _subscribed = new();
@@ -42,6 +42,26 @@ public sealed class SessionCoordinator : ISessionCoordinator
 
         _provider.SessionsChanged += OnSessionsChanged;
         _provider.SystemCurrentChanged += OnSystemCurrentChanged;
+
+        Evaluate();
+    }
+
+    /// <summary>
+    /// Replaces the selection tunables (preferred player, ignored players, aliases, timeline tick) and re-evaluates
+    /// the active session so a live settings change takes effect immediately. See _docs/06-settings-schema.md.
+    /// </summary>
+    public void UpdateOptions(MediaOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _options = options;
+        }
 
         Evaluate();
     }

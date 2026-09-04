@@ -27,6 +27,7 @@ public sealed partial class DrawerWindow : Window
     private readonly DrawerHost _host;
     private readonly MediaViewModel _viewModel;
     private readonly nint _hwnd;
+    private OverlappedPresenter? _presenter;
 
     private double _scale = 1.0;
     private double _heightLogical = DesignHeight;
@@ -71,6 +72,7 @@ public sealed partial class DrawerWindow : Window
 
         // Escape closes when the drawer has focus; losing activation to another app is a click-outside dismiss.
         Root.KeyDown += OnRootKeyDown;
+        Root.PointerMoved += OnRootActivity;
         Activated += OnActivated;
     }
 
@@ -89,6 +91,16 @@ public sealed partial class DrawerWindow : Window
         presenter.SetBorderAndTitleBar(false, false);
         AppWindow.SetPresenter(presenter);
         AppWindow.IsShownInSwitchers = false;
+        _presenter = presenter;
+    }
+
+    /// <summary>Applies <c>drawer.alwaysOnTop</c>: keeps the open drawer topmost when true.</summary>
+    public void SetAlwaysOnTop(bool value)
+    {
+        if (_presenter is not null)
+        {
+            _presenter.IsAlwaysOnTop = value;
+        }
     }
 
     /// <summary>Computes the drawer's placement at the top-centre of the monitor's work area (physical pixels).</summary>
@@ -224,8 +236,11 @@ public sealed partial class DrawerWindow : Window
         _host.OnDragSampleFed();
     }
 
+    private void OnRootActivity(object sender, PointerRoutedEventArgs e) => _host.OnDrawerActivity();
+
     private void OnRootKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        _host.OnDrawerActivity();
         if (e.Key == global::Windows.System.VirtualKey.Escape)
         {
             _host.Controller.Dismiss(DismissReason.Escape);

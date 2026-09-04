@@ -36,7 +36,7 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
     private readonly ISessionCoordinator _coordinator;
     private readonly IMediaSessionProvider _provider;
     private readonly IArtworkCache _artworkCache;
-    private readonly MediaOptions _options;
+    private MediaOptions _options;
     private readonly DispatcherQueue _dispatcher;
     private readonly DispatcherQueueTimer _timelineTimer;
     private readonly DispatcherQueueTimer _statusTimer;
@@ -111,6 +111,22 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>
+    /// Raised on the UI thread after the user invokes a transport or seek command from the drawer. The host uses it
+    /// to honour <c>drawer.hideAfterCommand</c>.
+    /// </summary>
+    public event EventHandler? CommandInvoked;
+
+    /// <summary>
+    /// Swaps the media tunables (aliases, timeline tick) after a live settings change. Alias resolution reads the
+    /// current instance on every use; the timeline timer interval is updated here.
+    /// </summary>
+    public void UpdateOptions(MediaOptions options)
+    {
+        _options = options ?? throw new ArgumentNullException(nameof(options));
+        _timelineTimer.Interval = TimeSpan.FromMilliseconds(Math.Max(50, _options.TimelineTickMs));
+    }
 
     public string Title { get => _title; private set => Set(ref _title, value); }
 
@@ -214,6 +230,7 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
         DateTimeOffset now = DateTimeOffset.UtcNow;
         _pendingSeek = SeekReconciliation.Begin(ClampToTrack(target), now);
         UpdateTimeline();
+        CommandInvoked?.Invoke(this, EventArgs.Empty);
 
         await ObserveAsync("Seek", session.TrySeekAsync(target, CancellationToken.None)).ConfigureAwait(true);
     }
@@ -579,6 +596,7 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
             return Task.CompletedTask;
         }
 
+        CommandInvoked?.Invoke(this, EventArgs.Empty);
         return ObserveAsync(name, command(session, CancellationToken.None));
     }
 

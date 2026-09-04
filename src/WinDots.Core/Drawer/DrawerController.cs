@@ -9,7 +9,7 @@ namespace WinDots.Core.Drawer;
 /// </summary>
 public sealed class DrawerController : IDrawerController
 {
-    private readonly DrawerOptions options;
+    private DrawerOptions options;
     private readonly VelocityTracker velocity;
 
     private bool pressed;
@@ -33,6 +33,23 @@ public sealed class DrawerController : IDrawerController
     public event EventHandler<DrawerTransition>? Transition;
 
     public DrawerOptions Options => options;
+
+    /// <summary>
+    /// Swaps the gesture tunables from a live settings change. Applied only when the drawer is idle
+    /// (<see cref="DrawerState.Closed"/> or <see cref="DrawerState.Open"/>) so an in-flight gesture or settle is
+    /// never disturbed; returns false when deferred.
+    /// </summary>
+    public bool TryUpdateOptions(DrawerOptions newOptions)
+    {
+        ArgumentNullException.ThrowIfNull(newOptions);
+        if (pressed || State is not (DrawerState.Closed or DrawerState.Open))
+        {
+            return false;
+        }
+
+        options = newOptions.Validate();
+        return true;
+    }
 
     public DrawerState State { get; private set; } = DrawerState.Closed;
 

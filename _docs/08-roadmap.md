@@ -32,24 +32,24 @@ Branch naming: `feat/<area>`, `fix/<area>`, `docs/<area>`. Every milestone ends 
 - **Exit met**: `tests/scripts/Invoke-ShellCheck.ps1` passes on a dual-monitor setup at 100 % and 125 % (150 % not available on this machine); handles never activate; drawer takes foreground after open; cross-monitor move and settle interruption work.
 - Open polish for M4: the handle is an opaque 200x12 strip (WinUI windows cannot be transparent yet); the drawer has no acrylic; hover growth is unverified by script.
 
-### M3 Functional media - `feat/media-ui`
-1. `SessionCoordinator` + tests; `TimelineInterpolator` + tests.
-2. Media page view: blob artwork, ring, metadata, seek, transport, chooser, lyrics shell.
-3. Empty/unknown state identical to `Static.png`.
-4. Artwork cache with limits.
-- **Exit**: M3 checklist passes; matrix rows for Spotify, YouTube Music (Edge), VLC complete.
+### M3 Functional media - `feat/foundation` (code done 2026-09-04; visual QA pending)
+1. Done: `SessionCoordinator` + `MediaOptions` + 30 tests; `SeekReconciliation`; `TimelineInterpolator` (commit `a83b7b3`).
+2. Done: tokens (`Resources/Tokens.xaml`), controls `BlobArtwork`, `DottedProgressRing`, `TransportBar`, `SeekBar`, `PlayerChooser`, `LyricsPanel`; `MediaViewModel`; `MediaPage` hosted in `DrawerWindow`; diagnostics commands 7/8/9 (commit `7e18237`).
+3. Done in code: empty state per `Static.png` (ring shown unfilled, "Unknown title/artist/album", chooser shows the system-current source).
+4. Done: `ArtworkCache` (32 MB LRU + disk, single-flight) wired into the view-model.
+- **Exit pending**: on-device capture comparison to `MediaPlayer.png` / `Static.png` (`tests/scripts/Capture-Drawer.ps1`; blocked while the workstation is locked) and the M3 manual checklist. Log evidence so far: coordinator selects the test player, hook play/pause round-trips.
 
-### M4 Windows polish - `feat/visual-polish`
-1. Tokens, dark/light, acrylic + fallback, DWM corners.
-2. `PaletteService` + tests; colour transitions.
-3. Background blobs, ring/blob idle motion, reduced motion, high contrast, Narrator names.
-4. Multi-monitor handles, display-change recovery.
+### M4 Windows polish - `feat/foundation`
+1. Tokens done (M3); acrylic + opaque fallback and DWM corners: to do (corners done in M2).
+2. Done: `PaletteService` + `ColorMath` with 24 tests (commit pending push in this stage). Colour transitions and wiring into the view-model: to do.
+3. Background blobs, ring/blob idle motion, reduced motion, high contrast, Narrator names: to do.
+4. Multi-monitor handles done (M2); display-change recovery verified only by identical-layout guard: needs a real topology test.
 - **Exit**: M4 checklist; 60 fps drawer on the dev machine.
 
-### M5 Volume and settings - `feat/core-audio`, `feat/settings`
-1. `CoreAudioSessionProvider` with confidence tiers + platform tests.
-2. Volume row with confidence gating.
-3. `SettingsStore`, migrator, settings window, startup task.
+### M5 Volume and settings - `feat/foundation`
+1. Done: `CoreAudioSessionProvider` (CsWin32 COM on its own dispatcher, default-device re-attach) + `AudioMatchPolicy` with tests; platform tests against the test player, which now opens a real render session.
+2. Volume row with confidence gating: to do (App).
+3. Done in Core: `Settings` records, `JsonSettingsStore` (atomic, .bak, corrupt recovery, sanitiser), `SettingsMigrator`, `ShortcutParser`. To do: wire into `DrawerHost`/hotkey/aliases, settings window, startup task.
 - **Exit**: volume never moves an unrelated app; corrupt settings recover.
 
 ### M6 Package and release - `feat/packaging`
