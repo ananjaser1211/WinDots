@@ -223,7 +223,8 @@ public sealed record DiagnosticsSettings
 
 public sealed record LyricsSettings
 {
-    public LyricsProvider Provider { get; init; } = LyricsProvider.Off;
+    // Lyrics are on by default; the settings toggle can turn them off.
+    public LyricsProvider Provider { get; init; } = LyricsProvider.Lrclib;
 
     public int OffsetMs { get; init; }
 

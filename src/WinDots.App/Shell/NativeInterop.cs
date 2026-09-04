@@ -80,7 +80,23 @@ internal static class NativeInterop
     public const uint TPM_RIGHTBUTTON = 0x0002;
     public const uint TPM_RETURNCMD = 0x0100;
 
+    // RedrawWindow flags used to force the exposed desktop strip to repaint after the pill shrinks.
+    private const uint RDW_INVALIDATE = 0x0001;
+    private const uint RDW_ERASE = 0x0004;
+    private const uint RDW_ALLCHILDREN = 0x0080;
+    private const uint RDW_UPDATENOW = 0x0100;
+    private const uint RDW_ERASENOW = 0x0200;
+
     public delegate nint WndProcDelegate(nint hWnd, uint msg, nint wParam, nint lParam);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     public struct POINT
@@ -262,6 +278,21 @@ internal static class NativeInterop
 
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);
+
+    /// <summary>
+    /// Forces the given screen rectangle to repaint across all windows under it. Used after the pill shrinks: a
+    /// topmost DWM-rounded window leaves a faint residue of its old edge in the newly-exposed strip until something
+    /// invalidates it, so we invalidate the rectangle the pill used to occupy.
+    /// </summary>
+    public static void InvalidateScreenRect(int left, int top, int right, int bottom)
+    {
+        var rect = new RECT { Left = left, Top = top, Right = right, Bottom = bottom };
+        _ = RedrawWindow(0, ref rect, 0, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW | RDW_ERASENOW);
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool RedrawWindow(nint hWnd, ref RECT lprcUpdate, nint hrgnUpdate, uint flags);
 
     public static void SetRoundedCorners(nint hwnd)
     {

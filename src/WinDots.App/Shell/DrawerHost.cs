@@ -701,9 +701,10 @@ public sealed class DrawerHost
         if (_drawerSettings.Enabled)
         {
             int offset = Math.Clamp(_monitorSettings.HandleOffsetPercent, 0, 100);
+            bool reducedMotion = ResolveReducedMotion(_appearanceSettings.ReduceMotion);
             foreach (var monitor in EnabledMonitors())
             {
-                _handles.Add(new HandleWindow(monitor, this, offset));
+                _handles.Add(new HandleWindow(monitor, this, offset, reducedMotion));
             }
         }
 

@@ -11,7 +11,7 @@ File: `%LOCALAPPDATA%\WinDots\settings.json`. UTF-8, camelCase, written atomical
   "monitors": {},
   "privacy": {},
   "diagnostics": {},
-  "lyrics": { "provider": "Off", "offsetMs": 0 },
+  "lyrics": { "provider": "Lrclib", "offsetMs": 0 },
   "lastfm": { "enabled": false, "scrobble": true, "nowPlaying": true },
   "visualiser": {},
   "weather": {},
@@ -93,7 +93,7 @@ Sources seen at runtime are recorded (app id, display name, last-seen time, last
 
 | Key | Type | Default | Notes |
 |---|---|---|---|
-| `provider` | `"Off"`, `"Lrclib"` | `"Off"` | `Off` sends nothing to the network. `Lrclib` looks up lyrics from lrclib.net (keyless) using the track title, artist, album, and duration over HTTPS. See `_docs/privacy.md`. |
+| `provider` | `"Off"`, `"Lrclib"` | `"Lrclib"` | On by default; the settings toggle turns it off. `Off` sends nothing to the network. `Lrclib` looks up lyrics (keyless) by title, artist, album, and duration over HTTPS; the source is not shown in the UI. See `_docs/privacy.md`. |
 | `offsetMs` | int | `0` | Default synchronisation offset in milliseconds (positive advances lines earlier). Per-track overrides are stored separately in `LocalState\lyrics-offsets.json`, not in settings. |
 
 Fetched lyrics are cached for 30 days in `LocalState\cache\lyrics`, keyed by a SHA-256 of the normalised query; both found and not-found answers are cached so a track is queried at most once.

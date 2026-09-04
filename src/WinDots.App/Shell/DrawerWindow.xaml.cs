@@ -27,9 +27,10 @@ namespace WinDots.App.Shell;
 /// </summary>
 public sealed partial class DrawerWindow : Window
 {
-    // Logical design size from _docs/03-ux-interaction-spec.md.
-    public const double DesignWidth = 720;
-    public const double DesignHeight = 300;
+    // Logical design size from _docs/03-ux-interaction-spec.md. Sized to comfortably fit the media page's artwork,
+    // metadata, transport, volume row and lyrics column without crowding.
+    public const double DesignWidth = 820;
+    public const double DesignHeight = 344;
 
     private readonly DrawerHost _host;
     private readonly MediaViewModel _viewModel;

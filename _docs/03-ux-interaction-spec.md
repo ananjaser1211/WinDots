@@ -4,10 +4,10 @@
 
 | Element | Logical px at 100 % | Notes |
 |---|---|---|
-| Handle window (rest) | 160 x 6 | The window **is** the pill: sized to the visual and clipped to a stadium region (`SetWindowRgn` with a round-rect radius = height) so the corners are transparent and click-through. Centred on the monitor's top edge. |
-| Handle window (hover) | 200 x 8 | The window resizes and the region is re-applied; the fill brightens. No separate opaque hit strip. |
-| Handle hit target | = window | The whole pill is the hit target; there is no extra transparent margin (a 3 px margin was omitted because it cannot add hittable area inside `SetWindowRgn` and an opaque one would break the pill silhouette). |
-| Drawer | 720 x 300 | Clamped to 90 % of work-area width, 60 % of height |
+| Handle window (rest) | 112 x 12 | The window **is** the pill, a small iPhone-home-indicator-style capsule. DWM rounds its corners (anti-aliased); **no** `SetWindowRgn` - a Win32 region stops WinUI routing pointer input to the content, and a sub-~10 px window renders nothing and takes no input, so the height is floored by what WinUI will render/hit-test. Centred on the monitor's top edge. |
+| Handle window (hover) | 150 x 16 | The window smoothly grows (eased bounds tween) and the fill blooms to the accent. |
+| Handle hit target | = window | The whole capsule is the hit target. At rest the fill breathes with a gentle colour pulse (off under reduced motion). |
+| Drawer | 820 x 344 | Clamped to 90 % of work-area width, 60 % of height |
 | Drawer top offset | 0 | Flush with the top edge; if the taskbar is on top, sits below it |
 
 All values scale with the monitor's DPI; text additionally scales with `appearance.fontScale`.

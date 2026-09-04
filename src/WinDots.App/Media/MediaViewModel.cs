@@ -643,9 +643,8 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         LyricsLines = text;
         LyricsSynced = result.IsSynced;
-        LyricsAttribution = string.IsNullOrEmpty(result.AttributionUrl)
-            ? string.Empty
-            : $"Lyrics from {result.Provider}";
+        // The lyrics source is not surfaced in the UI (user preference); attribution stays empty so the panel hides it.
+        LyricsAttribution = string.Empty;
         LyricsState = LyricsState.Found;
         UpdateLyricsIndex();
     }

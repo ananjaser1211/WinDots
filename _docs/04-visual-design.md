@@ -60,9 +60,10 @@ Two static palettes plus a dynamic accent.
 
 ## Collapsed handle (built, M4)
 
-- The handle **window itself is the pill**: it is sized to the visual (160 x 6 logical at rest, 200 x 8 on hover) and clipped to a fully rounded stadium region with `CreateRoundRectRgn` + `SetWindowRgn` (radius = height), re-applied after every move/resize, so the corners are transparent and click-through. It keeps `WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST`.
-- Hover grows the window (resize + region re-apply) and brightens the fill from `TextFillColorSecondary` to `TextFillColorPrimary`.
-- Deferred: no extra transparent hit margin around the pill (a margin cannot add hittable area inside the region and an opaque one would break the pill look); drag and click behaviour unchanged from M2.
+- The handle **window itself is the pill**: a small iPhone-home-indicator-style capsule, 112 x 12 logical at rest, 150 x 16 on hover, centred on the top edge. DWM rounds its corners (`DWMWA_WINDOW_CORNER_PREFERENCE`, anti-aliased and composited); it keeps `WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST` and a zero-height title bar (`ExtendsContentIntoTitleBar` + `SetTitleBar` on an empty element) so pointer input reaches the pill rather than being eaten as caption.
+- **No `SetWindowRgn`**: a Win32 window region stops WinUI routing pointer input to the content (hover/click break), and its edges are aliased. The window is therefore the exact pill size; its height is floored by what WinUI will render and hit-test (a few-px window renders nothing).
+- Animation: a slow autoreversing colour breathe at rest (`SineEase`, off under reduced motion); on hover an eased bounds tween grows the window and a `ColorAnimation` blooms the fill to the accent. On shrink the vacated screen strip is invalidated (`RedrawWindow`) so no edge residue lingers.
+- Deferred: a truly hair-thin (~5 px) indicator would need a Win32 composition host (`DesktopWindowTarget` + `CompositionRoundedRectangleGeometry`) with manual hit-testing (codex-recommended), not attempted yet to keep the shell simple and stable.
 
 ## Background blobs (built, M4)
 

@@ -4,16 +4,19 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <!-- The window itself is the pill: it is sized to the visual (160x6, 200x8 on hover) and clipped to a stadium
-         region in code (SetWindowRgn) so its corners are transparent. The Border fills the window and only carries the
-         pill fill colour, which brightens on hover. -->
-    <Grid PointerEntered="OnPointerEntered"
+    <!-- The window IS the capsule: a slim rounded bar sized to the pill. Content extends to the top edge (no reserved
+         title-bar band); a zero-height title-bar region (set in code) leaves no caption, so all pointer input reaches
+         the Border. DWM rounds the window corners (anti-aliased). The Border carries the animated fill colour, which
+         brightens to the accent on hover and breathes gently at rest. -->
+    <Grid x:Name="Root" Background="Transparent"
+          PointerEntered="OnPointerEntered"
           PointerExited="OnPointerExited">
-        <Border
-            x:Name="Bar"
-            HorizontalAlignment="Stretch"
-            VerticalAlignment="Stretch"
-            CornerRadius="3"
-            Background="{ThemeResource TextFillColorSecondaryBrush}" />
+        <!-- Zero-height draggable region: designating it means the rest of the window is content, not caption. -->
+        <Border x:Name="TitleBarRegion" Height="0" VerticalAlignment="Top" />
+        <Border x:Name="Bar" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+            <Border.Background>
+                <SolidColorBrush x:Name="FillBrush" />
+            </Border.Background>
+        </Border>
     </Grid>
 </Window>
