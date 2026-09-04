@@ -261,6 +261,8 @@ public static class SettingsExtensions
             IgnoredPlayers = media.IgnoredPlayers.ToArray(),
             PlayerAliases = new Dictionary<string, string>(media.PlayerAliases, StringComparer.Ordinal),
             TimelineTickMs = media.TimelineTickMs,
+            AllowSharedVolume = media.AllowSharedVolume,
+            VolumeStepPercent = media.VolumeStepPercent,
         };
     }
 }

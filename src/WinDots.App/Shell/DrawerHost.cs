@@ -60,15 +60,17 @@ public sealed class DrawerHost
     private MonitorInfo? _pendingMonitor;
     private bool _drawerShown;
     private nint _previousForeground;
+    private readonly IAudioSessionProvider? _audio;
     private long _lastFrameTicks;
     private double _reducedFrom;
     private double _reducedTo;
     private TimeSpan _reducedElapsed;
     private string _topologyKey = string.Empty;
 
-    public DrawerHost(IMediaSessionProvider provider, IMonitorService monitors, DispatcherQueue dispatcher, ISettingsStore settings)
+    public DrawerHost(IMediaSessionProvider provider, IAudioSessionProvider? audio, IMonitorService monitors, DispatcherQueue dispatcher, ISettingsStore settings)
     {
         _provider = provider;
+        _audio = audio;
         _monitors = monitors;
         _dispatcher = dispatcher;
         _settings = settings;
@@ -101,7 +103,7 @@ public sealed class DrawerHost
         _coordinator = new SessionCoordinator(provider, mediaOptions);
         var artworkDir = Path.Combine(ApplicationData.Current.LocalFolder.Path, "cache", "artwork");
         _artworkCache = new ArtworkCache(artworkDir, 32L * 1024 * 1024);
-        _viewModel = new MediaViewModel(_coordinator, provider, _artworkCache, mediaOptions, _dispatcher);
+        _viewModel = new MediaViewModel(_coordinator, provider, _artworkCache, mediaOptions, _dispatcher, audio);
         _viewModel.CommandInvoked += OnCommandInvoked;
 
         _activeMonitor = PickDefaultMonitor();
@@ -266,6 +268,34 @@ public sealed class DrawerHost
 
     /// <summary>Diagnostics hook: seek the active session forward by 10 seconds.</summary>
     public void DiagSeekForward() => _ = _viewModel.SeekAsync(_viewModel.Position + TimeSpan.FromSeconds(10));
+
+    /// <summary>Diagnostics hook: logs the current audio match state (no titles).</summary>
+    public void DiagAudioMatch() =>
+        ShellLog.Write($"audio: available={_viewModel.VolumeAvailable} shared={_viewModel.VolumeShared} level={_viewModel.VolumeLevel} muted={_viewModel.IsMuted} provider={(_audio is null ? "none" : "present")} why=\"{_viewModel.VolumeExplanation}\"");
+
+    /// <summary>Diagnostics hook: sets the matched session's volume to 25 % (no-op unless available).</summary>
+    public void DiagSetVolume25()
+    {
+        if (!_viewModel.VolumeAvailable)
+        {
+            ShellLog.Write("audio: set volume skipped (not available)");
+            return;
+        }
+
+        _viewModel.SetVolume(25);
+    }
+
+    /// <summary>Diagnostics hook: toggles mute on the matched session (no-op unless available).</summary>
+    public void DiagToggleMute()
+    {
+        if (!_viewModel.VolumeAvailable)
+        {
+            ShellLog.Write("audio: toggle mute skipped (not available)");
+            return;
+        }
+
+        _ = _viewModel.ToggleMuteAsync();
+    }
 
     /// <summary>Diagnostics hook: writes the host's state to the shell log.</summary>
     public void DumpState()

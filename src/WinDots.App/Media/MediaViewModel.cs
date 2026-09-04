@@ -33,13 +33,28 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
     private const int ArtworkDecodeWidth = 440;
     private static readonly TimeSpan StatusDuration = TimeSpan.FromSeconds(2);
 
+    private static readonly TimeSpan VolumeDebounce = TimeSpan.FromMilliseconds(50);
+
     private readonly ISessionCoordinator _coordinator;
     private readonly IMediaSessionProvider _provider;
     private readonly IArtworkCache _artworkCache;
+    private readonly IAudioSessionProvider? _audio;
     private MediaOptions _options;
     private readonly DispatcherQueue _dispatcher;
     private readonly DispatcherQueueTimer _timelineTimer;
     private readonly DispatcherQueueTimer _statusTimer;
+    private readonly DispatcherQueueTimer _volumeTimer;
+
+    // Per-application volume (Milestone 5). Only a High match (or Medium with media.allowSharedVolume) may be
+    // acted on; with no match the provider is never called, so no unrelated application can be touched.
+    private AudioMatch? _audioMatch;
+    private CancellationTokenSource? _audioCts;
+    private int? _pendingVolume;
+    private bool _volumeAvailable;
+    private bool _volumeShared;
+    private string _volumeExplanation = "No player is active.";
+    private int _volumeLevel;
+    private bool _isMuted;
 
     private IMediaSession? _activeSession;
     private Timeline _timeline = Timeline.Empty;
@@ -79,13 +94,24 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
         IMediaSessionProvider provider,
         IArtworkCache artworkCache,
         MediaOptions options,
-        DispatcherQueue dispatcher)
+        DispatcherQueue dispatcher,
+        IAudioSessionProvider? audio = null)
     {
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
         _artworkCache = artworkCache ?? throw new ArgumentNullException(nameof(artworkCache));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
+        _audio = audio;
+
+        _volumeTimer = _dispatcher.CreateTimer();
+        _volumeTimer.Interval = VolumeDebounce;
+        _volumeTimer.IsRepeating = false;
+        _volumeTimer.Tick += OnVolumeDebounceElapsed;
+        if (_audio is not null)
+        {
+            _audio.Changed += OnAudioChanged;
+        }
 
         _timelineTimer = _dispatcher.CreateTimer();
         _timelineTimer.Interval = TimeSpan.FromMilliseconds(Math.Max(50, _options.TimelineTickMs));
@@ -108,9 +134,186 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         RefreshFromActive();
         RebuildChooser();
+        RefreshAudioMatch();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    // --- Volume (confidence-gated) ---
+
+    /// <summary>True when the active player's audio session was matched confidently enough to show controls.</summary>
+    public bool VolumeAvailable { get => _volumeAvailable; private set => Set(ref _volumeAvailable, value); }
+
+    /// <summary>True for a Medium match: the volume applies to several windows of the same app (browser tabs).</summary>
+    public bool VolumeShared { get => _volumeShared; private set => Set(ref _volumeShared, value); }
+
+    /// <summary>Why volume is or is not available, from the matcher. Never contains media titles.</summary>
+    public string VolumeExplanation { get => _volumeExplanation; private set => Set(ref _volumeExplanation, value); }
+
+    /// <summary>0-100.</summary>
+    public int VolumeLevel { get => _volumeLevel; private set => Set(ref _volumeLevel, value); }
+
+    public bool IsMuted { get => _isMuted; private set => Set(ref _isMuted, value); }
+
+    /// <summary>Requests a volume change (0-100). Debounced so slider drags coalesce; optimistic in the UI.</summary>
+    public void SetVolume(int percent)
+    {
+        if (!VolumeAvailable)
+        {
+            return;
+        }
+
+        percent = Math.Clamp(percent, 0, 100);
+        VolumeLevel = percent;
+        _pendingVolume = percent;
+        _volumeTimer.Stop();
+        _volumeTimer.Start();
+    }
+
+    /// <summary>Nudges by <see cref="MediaOptions.VolumeStepPercent"/> in the given direction (+1 / -1).</summary>
+    public void NudgeVolume(int direction) => SetVolume(VolumeLevel + (Math.Sign(direction) * Math.Max(1, _options.VolumeStepPercent)));
+
+    public async Task ToggleMuteAsync()
+    {
+        if (!VolumeAvailable || _audio is null || _audioMatch is null)
+        {
+            return;
+        }
+
+        bool target = !IsMuted;
+        IsMuted = target;
+        bool ok;
+        try
+        {
+            ok = await _audio.TrySetMuteAsync(_audioMatch, target, CancellationToken.None).ConfigureAwait(true);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException)
+        {
+            ok = false;
+            ShellLog.Write($"volume: mute faulted {ex.GetType().Name}");
+        }
+
+        if (!ok)
+        {
+            IsMuted = !target;
+            ShowStatus("The player's mute state could not be changed.");
+        }
+    }
+
+    private async void OnVolumeDebounceElapsed(DispatcherQueueTimer sender, object args)
+    {
+        if (_pendingVolume is not { } percent || _audio is null || _audioMatch is null || !VolumeAvailable)
+        {
+            return;
+        }
+
+        _pendingVolume = null;
+        bool ok;
+        try
+        {
+            ok = await _audio.TrySetVolumeAsync(_audioMatch, percent / 100f, CancellationToken.None).ConfigureAwait(true);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException)
+        {
+            ok = false;
+            ShellLog.Write($"volume: set faulted {ex.GetType().Name}");
+        }
+
+        if (!ok)
+        {
+            ShowStatus("The player's volume could not be changed.");
+        }
+    }
+
+    private void OnAudioChanged(object? sender, EventArgs e) => Marshal(RefreshAudioMatch);
+
+    /// <summary>Re-matches the active session's app to Core Audio sessions off the UI thread; results are gated.</summary>
+    private void RefreshAudioMatch()
+    {
+        _audioCts?.Cancel();
+        _audioCts = null;
+
+        IMediaSession? session = _activeSession;
+        if (_audio is null || session is null || _disposed)
+        {
+            ClearVolume(session is null ? "No player is active." : "Per-app volume is unavailable.");
+            return;
+        }
+
+        var cts = new CancellationTokenSource();
+        _audioCts = cts;
+        string sourceAppId = session.SourceAppId;
+        IAudioSessionProvider audio = _audio;
+        bool allowShared = _options.AllowSharedVolume;
+
+        _ = Task.Run(async () =>
+        {
+            AudioMatch match;
+            float? level = null;
+            bool? muted = null;
+            try
+            {
+                match = await audio.MatchAsync(sourceAppId, cts.Token).ConfigureAwait(false);
+                bool usable = match.Confidence == AudioMatchConfidence.High ||
+                              (match.Confidence == AudioMatchConfidence.Medium && allowShared);
+                if (usable)
+                {
+                    level = await audio.GetVolumeAsync(match, cts.Token).ConfigureAwait(false);
+                    muted = await audio.GetMuteAsync(match, cts.Token).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException)
+            {
+                match = AudioMatch.NoMatch($"Audio session lookup failed ({ex.GetType().Name}).");
+            }
+
+            if (cts.IsCancellationRequested)
+            {
+                return;
+            }
+
+            Marshal(() =>
+            {
+                if (cts.IsCancellationRequested || !ReferenceEquals(_audioCts, cts))
+                {
+                    return;
+                }
+
+                ApplyAudioMatch(match, level, muted, allowShared);
+            });
+        });
+    }
+
+    private void ApplyAudioMatch(AudioMatch match, float? level, bool? muted, bool allowShared)
+    {
+        bool usable = match.Confidence == AudioMatchConfidence.High ||
+                      (match.Confidence == AudioMatchConfidence.Medium && allowShared);
+        _audioMatch = usable ? match : null;
+        _pendingVolume = null;
+        VolumeShared = usable && match.Confidence == AudioMatchConfidence.Medium;
+        VolumeExplanation = match.Explanation;
+        if (usable)
+        {
+            VolumeLevel = (int)Math.Round(Math.Clamp(level ?? 0f, 0f, 1f) * 100);
+            IsMuted = muted ?? false;
+        }
+
+        VolumeAvailable = usable;
+        ShellLog.Write($"volume: match={match.Confidence} usable={usable} sessions={match.AudioSessionIds.Count} why=\"{match.Explanation}\"");
+    }
+
+    private void ClearVolume(string explanation)
+    {
+        _audioMatch = null;
+        _pendingVolume = null;
+        VolumeAvailable = false;
+        VolumeShared = false;
+        VolumeExplanation = explanation;
+    }
 
     /// <summary>
     /// Raised on the UI thread after the user invokes a transport or seek command from the drawer. The host uses it
@@ -124,8 +327,13 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
     /// </summary>
     public void UpdateOptions(MediaOptions options)
     {
+        bool sharedChanged = _options.AllowSharedVolume != options.AllowSharedVolume;
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _timelineTimer.Interval = TimeSpan.FromMilliseconds(Math.Max(50, _options.TimelineTickMs));
+        if (sharedChanged)
+        {
+            RefreshAudioMatch();
+        }
     }
 
     public string Title { get => _title; private set => Set(ref _title, value); }
@@ -269,6 +477,15 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
         _timelineTimer.Tick -= OnTimelineTick;
         _statusTimer.Stop();
         _statusTimer.Tick -= OnStatusExpired;
+        _volumeTimer.Stop();
+        _volumeTimer.Tick -= OnVolumeDebounceElapsed;
+        if (_audio is not null)
+        {
+            _audio.Changed -= OnAudioChanged;
+        }
+
+        _audioCts?.Cancel();
+        _audioCts = null;
 
         CancelArtworkLoad();
     }
@@ -302,8 +519,9 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
                 _activeSession.Updated += OnSessionUpdated;
             }
 
-            // A different session invalidates any in-flight optimistic seek.
+            // A different session invalidates any in-flight optimistic seek and the audio match.
             _pendingSeek = null;
+            RefreshAudioMatch();
         }
 
         RefreshFromActive();

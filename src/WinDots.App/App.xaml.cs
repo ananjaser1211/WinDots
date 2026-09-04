@@ -6,6 +6,7 @@ using WinDots.App.Settings;
 using WinDots.App.Shell;
 using WinDots.Core.Contracts;
 using WinDots.Core.Settings;
+using WinDots.Windows.Audio;
 using WinDots.Windows.Display;
 using WinDots.Windows.Media;
 
@@ -32,6 +33,9 @@ public partial class App : Application
 
     /// <summary>Single provider instance for the process; owned by the app, injected into windows.</summary>
     public IMediaSessionProvider MediaSessions { get; } = new GsmtcSessionProvider();
+
+    /// <summary>Core Audio (per-application volume) provider; owned by the app, disposed on Quit.</summary>
+    public CoreAudioSessionProvider AudioSessions { get; } = new CoreAudioSessionProvider();
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
@@ -63,7 +67,7 @@ public partial class App : Application
         _monitors = new MonitorService();
 
         // DrawerHost.Instance retains the host (and through it every window) for the process lifetime.
-        _host = new DrawerHost(MediaSessions, _monitors, DispatcherQueue.GetForCurrentThread(), _settings);
+        _host = new DrawerHost(MediaSessions, AudioSessions, _monitors, DispatcherQueue.GetForCurrentThread(), _settings);
 
         // Desktop integration: the global toggle hotkey (from drawer.toggleShortcut) and the tray icon live on a
         // hidden message window, pumped by this UI thread. Registration failures are logged and non-fatal.
@@ -78,7 +82,10 @@ public partial class App : Application
             onQuit: Quit,
             onPlayPause: () => _host!.DiagPlayPause(),
             onNextCandidate: () => _host!.DiagNextCandidate(),
-            onSeekForward: () => _host!.DiagSeekForward());
+            onSeekForward: () => _host!.DiagSeekForward(),
+            onAudioMatch: () => _host!.DiagAudioMatch(),
+            onSetVolume25: () => _host!.DiagSetVolume25(),
+            onToggleMute: () => _host!.DiagToggleMute());
 
         _ = MediaSessions.InitializeAsync(System.Threading.CancellationToken.None);
     }
@@ -138,6 +145,15 @@ public partial class App : Application
         catch (System.Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Quit: provider dispose threw: {ex}");
+        }
+
+        try
+        {
+            await AudioSessions.DisposeAsync();
+        }
+        catch (System.Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Quit: audio provider dispose threw: {ex}");
         }
 
         // WinUI keeps the process alive while any window exists; close ours before asking the app to exit.

@@ -40,6 +40,9 @@ internal sealed class ShellMessageWindow : IDisposable
     public const int CommandNextCandidate = 8;
     public const int CommandSeekForward = 9;
     public const int CommandOpenSettings = 10;
+    public const int CommandAudioMatch = 11;
+    public const int CommandSetVolume25 = 12;
+    public const int CommandToggleMute = 13;
 
     private readonly string _className = ClassName;
     private readonly ISettingsStore _settings;
@@ -53,6 +56,9 @@ internal sealed class ShellMessageWindow : IDisposable
     private readonly Action _onPlayPause;
     private readonly Action _onNextCandidate;
     private readonly Action _onSeekForward;
+    private readonly Action _onAudioMatch;
+    private readonly Action _onSetVolume25;
+    private readonly Action _onToggleMute;
 
     private nint _hwnd;
     private nint _iconHandle;
@@ -72,9 +78,15 @@ internal sealed class ShellMessageWindow : IDisposable
         Action onQuit,
         Action onPlayPause,
         Action onNextCandidate,
-        Action onSeekForward)
+        Action onSeekForward,
+        Action onAudioMatch,
+        Action onSetVolume25,
+        Action onToggleMute)
     {
         _settings = settings;
+        _onAudioMatch = onAudioMatch;
+        _onSetVolume25 = onSetVolume25;
+        _onToggleMute = onToggleMute;
         _onToggleAtCursor = onToggleAtCursor;
         _onToggleOnMonitor = onToggleOnMonitor;
         _onDismiss = onDismiss;
@@ -337,6 +349,15 @@ internal sealed class ShellMessageWindow : IDisposable
                 break;
             case CommandOpenSettings:
                 SafeInvoke(_onShowSettings);
+                break;
+            case CommandAudioMatch:
+                SafeInvoke(_onAudioMatch);
+                break;
+            case CommandSetVolume25:
+                SafeInvoke(_onSetVolume25);
+                break;
+            case CommandToggleMute:
+                SafeInvoke(_onToggleMute);
                 break;
             default:
                 break;

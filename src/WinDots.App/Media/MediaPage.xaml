@@ -125,8 +125,57 @@
                     Visibility="{x:Bind HasText(ViewModel.StatusText), Mode=OneWay}"
                     AutomationProperties.LiveSetting="Assertive" />
 
-                <!-- Milestone 5: volume row (confidence-gated). Collapsed placeholder until then. -->
-                <Grid x:Name="VolumeRow" Margin="0,8,0,0" Visibility="Collapsed" />
+                <!-- Volume row (MediaPlayer.png): shown only when the audio session match is confident enough. -->
+                <Grid
+                    x:Name="VolumeRow"
+                    Margin="0,8,0,0"
+                    ColumnSpacing="8"
+                    Visibility="{x:Bind Vis(ViewModel.VolumeAvailable), Mode=OneWay}"
+                    PointerWheelChanged="OnVolumeWheel">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Button
+                        x:Name="MuteButton"
+                        Grid.Column="0"
+                        Width="32"
+                        Height="32"
+                        Padding="0"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Click="OnMuteClick"
+                        AutomationProperties.Name="{x:Bind MuteName(ViewModel.IsMuted), Mode=OneWay}">
+                        <FontIcon Glyph="{x:Bind VolumeGlyph(ViewModel.IsMuted, ViewModel.VolumeLevel), Mode=OneWay}" FontSize="14" Foreground="{ThemeResource WdOnSurfaceBrush}" />
+                    </Button>
+                    <Slider
+                        x:Name="VolumeSlider"
+                        Grid.Column="1"
+                        Minimum="0"
+                        Maximum="100"
+                        SmallChange="2"
+                        StepFrequency="1"
+                        VerticalAlignment="Center"
+                        Value="{x:Bind ViewModel.VolumeLevel, Mode=OneWay}"
+                        ValueChanged="OnVolumeSliderChanged"
+                        AutomationProperties.Name="Volume" />
+                    <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="0">
+                        <TextBlock
+                            Text="{x:Bind Percent(ViewModel.VolumeLevel), Mode=OneWay}"
+                            Style="{StaticResource WdCaptionTextStyle}"
+                            Foreground="{ThemeResource WdOnSurfaceBrush}"
+                            MinWidth="36"
+                            TextAlignment="Right" />
+                        <TextBlock
+                            Text="shared"
+                            Style="{StaticResource WdCaptionTextStyle}"
+                            Foreground="{ThemeResource WdOnSurfaceMutedBrush}"
+                            TextAlignment="Right"
+                            Visibility="{x:Bind Vis(ViewModel.VolumeShared), Mode=OneWay}"
+                            ToolTipService.ToolTip="This volume applies to every window of the player (for example all browser tabs)." />
+                    </StackPanel>
+                </Grid>
             </StackPanel>
 
             <!-- Right: lyrics slot with the player chooser pinned to its bottom. -->
@@ -141,6 +190,7 @@
                     Grid.Row="0"
                     CopyRequested="OnLyricsCopy"
                     OpenInPlayerRequested="OnLyricsOpen"
+                    WhyVolumeHiddenRequested="OnLyricsWhyVolumeHidden"
                     SettingsRequested="OnLyricsSettings" />
 
                 <controls:PlayerChooser

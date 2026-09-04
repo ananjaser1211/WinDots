@@ -22,6 +22,12 @@ public sealed record MediaOptions
     /// <summary>A snapshot captured within this window of "now" scores +100.</summary>
     public TimeSpan RecentActivityWindow { get; init; } = TimeSpan.FromSeconds(30);
 
+    /// <summary>Show the volume row for a <c>Medium</c> (shared) Core Audio match, not only <c>High</c>.</summary>
+    public bool AllowSharedVolume { get; init; }
+
+    /// <summary>Volume nudge, in percent, for the scroll wheel and arrow keys.</summary>
+    public int VolumeStepPercent { get; init; } = 2;
+
     /// <summary>
     /// Resolves the display name for a player. Returns the matching alias when a key matches the AUMID exactly
     /// or is a case-insensitive substring of the AUMID or display name; otherwise returns <paramref name="displayName"/>.

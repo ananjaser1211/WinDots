@@ -48,6 +48,62 @@ public sealed partial class MediaPage : UserControl
     private Visibility HasText(string? text) =>
         string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
 
+    private Visibility Vis(bool shown) => shown ? Visibility.Visible : Visibility.Collapsed;
+
+    private string Percent(int level) => level.ToString(System.Globalization.CultureInfo.CurrentCulture) + "%";
+
+    private string MuteName(bool muted) => muted ? "Unmute" : "Mute";
+
+    // Segoe Fluent Icons: E74F mute, E992 (silent), E993 low, E994 medium, E995 high.
+    private string VolumeGlyph(bool muted, int level) => muted ? "" : level switch
+    {
+        0 => "",
+        < 34 => "",
+        < 67 => "",
+        _ => "",
+    };
+
+    // --- Volume row ---
+
+    private void OnMuteClick(object sender, RoutedEventArgs e) => _ = ViewModel.ToggleMuteAsync();
+
+    private void OnVolumeSliderChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        // The slider also moves when the view-model pushes a new level; only user-originated changes go back.
+        if (_viewModel is null)
+        {
+            return;
+        }
+
+        int value = (int)Math.Round(e.NewValue);
+        if (value != ViewModel.VolumeLevel)
+        {
+            ViewModel.SetVolume(value);
+        }
+    }
+
+    private void OnVolumeWheel(object sender, PointerRoutedEventArgs e)
+    {
+        int delta = e.GetCurrentPoint(this).Properties.MouseWheelDelta;
+        if (delta != 0)
+        {
+            ViewModel.NudgeVolume(delta > 0 ? 1 : -1);
+            e.Handled = true;
+        }
+    }
+
+    private async void OnLyricsWhyVolumeHidden(object? sender, EventArgs e)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = ViewModel.VolumeAvailable ? "Volume is available" : "Why is volume hidden?",
+            Content = ViewModel.VolumeExplanation,
+            CloseButtonText = "Close",
+            XamlRoot = XamlRoot,
+        };
+        await dialog.ShowAsync();
+    }
+
     // --- Control event routing ---
 
     private void OnShuffleRequested(object? sender, EventArgs e) => _ = ViewModel.ToggleShuffleAsync();
@@ -103,7 +159,7 @@ public sealed partial class MediaPage : UserControl
                 break;
 
             case global::Windows.System.VirtualKey.M:
-                // Reserved for mute; a no-op until the volume milestone. Handled so it never leaks elsewhere.
+                _ = ViewModel.ToggleMuteAsync();
                 e.Handled = true;
                 break;
 

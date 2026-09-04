@@ -36,6 +36,10 @@ Send-Cmd 2 0; Start-Sleep -m 2500
 Send-Cmd 6; Start-Sleep -m 300
 Grab 'drawer-media.png'
 Get-Content $log -Tail 4 | ForEach-Object { "   | $_" }
+# Volume hooks: 11 logs the match, 12 sets 25 %, 13 toggles mute (twice to restore).
+Send-Cmd 11; Start-Sleep -m 400; Send-Cmd 12; Start-Sleep -m 600; Send-Cmd 13; Start-Sleep -m 600; Send-Cmd 11; Start-Sleep -m 400; Send-Cmd 13; Start-Sleep -m 600
+Grab 'drawer-media-volume.png'
+Get-Content $log | Select-String -Pattern 'audio:|volume:' | Select-Object -Last 6 | ForEach-Object { "   | $_" }
 Send-Cmd 3; Start-Sleep -m 1200
 
 # Empty state: stop the fake player, reopen.

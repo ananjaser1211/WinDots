@@ -59,4 +59,9 @@ public sealed partial class LyricsPanel : UserControl
     private void OnOpenInPlayerClick(object sender, RoutedEventArgs e) => OpenInPlayerRequested?.Invoke(this, EventArgs.Empty);
 
     private void OnSettingsClick(object sender, RoutedEventArgs e) => SettingsRequested?.Invoke(this, EventArgs.Empty);
+
+    /// <summary>Raised when the user asks why the volume row is hidden (or wants the match explanation).</summary>
+    public event EventHandler? WhyVolumeHiddenRequested;
+
+    private void OnWhyVolumeHiddenClick(object sender, RoutedEventArgs e) => WhyVolumeHiddenRequested?.Invoke(this, EventArgs.Empty);
 }

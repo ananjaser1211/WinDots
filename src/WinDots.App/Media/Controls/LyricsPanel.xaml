@@ -36,6 +36,7 @@
                     <MenuFlyout>
                         <MenuFlyoutItem Text="Copy track info" Click="OnCopyClick" />
                         <MenuFlyoutItem Text="Open in player" Click="OnOpenInPlayerClick" />
+                        <MenuFlyoutItem Text="Why is volume hidden?" Click="OnWhyVolumeHiddenClick" />
                         <MenuFlyoutItem Text="Settings" Click="OnSettingsClick" />
                     </MenuFlyout>
                 </Button.Flyout>
