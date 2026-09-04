@@ -47,12 +47,20 @@ public sealed class FakePlayer : IDisposable
         _smtc.ShuffleEnabledChangeRequested += OnShuffleRequested;
         _smtc.AutoRepeatModeChangeRequested += OnRepeatRequested;
 
+        // Feed the MediaPlayer a looping silent WAV so it opens a real Core Audio render session (which the audio
+        // matcher discovers). The command manager stays disabled, so all SMTC state remains manually controlled.
+        _player.IsLoopingEnabled = true;
+        _player.Source = Windows.Media.Core.MediaSource.CreateFromStream(
+            WavFactory.SilentWav(TimeSpan.FromSeconds(1)),
+            "audio/wav");
+
         _tick = new Timer(_ => PublishTimeline(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
     public void Start()
     {
         PublishTrack();
+        _player.Play();
         Play();
     }
 

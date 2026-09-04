@@ -26,3 +26,26 @@ WM_SETTINGCHANGE
 WM_CLOSE
 WM_DESTROY
 SYSTEM_PARAMETERS_INFO_ACTION
+
+// Audio/CoreAudioSessionProvider.cs - Core Audio (WASAPI session management)
+CoCreateInstance
+MMDeviceEnumerator
+IMMDeviceEnumerator
+IMMDevice
+IMMNotificationClient
+IAudioSessionManager2
+IAudioSessionEnumerator
+IAudioSessionControl
+IAudioSessionControl2
+ISimpleAudioVolume
+IAudioSessionNotification
+AudioSessionState
+EDataFlow
+ERole
+CLSCTX
+STGM
+GetPackageFamilyName
+OpenProcess
+CloseHandle
+PROCESS_ACCESS_RIGHTS
+CoTaskMemFree
