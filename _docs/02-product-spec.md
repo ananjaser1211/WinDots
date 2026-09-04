@@ -98,4 +98,4 @@ Phases are cumulative. Phase A is the MVP and must ship stable before Phase B st
 
 ## Non-goals (all phases)
 
-See the `AGENTS.md` hard constraints. In short: no Linux runtime, no UI scraping, no elevated install, no telemetry, no bundled third-party art.
+Hard constraints, in short: no Linux runtime, no UI scraping, no elevated install, no telemetry, no bundled third-party art.

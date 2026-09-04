@@ -5,7 +5,7 @@ Branch naming: `feat/<area>`, `fix/<area>`, `docs/<area>`. Every milestone ends 
 ## Phase A - MVP
 
 ### M0 Foundation (done)
-- Product docs, `_docs/`, `CLAUDE.md`, GPL-3.0 licence, ADRs 0001-0003. Commit `6ac2a3f`.
+- Product docs, `_docs/`, GPL-3.0 licence, ADRs 0001-0003. Commit `6ac2a3f`.
 
 ### M1 GSMTC capability spike - `feat/foundation` (done 2026-09-04)
 1. Done: .NET SDK 10.0.400 installed and pinned in `global.json`.

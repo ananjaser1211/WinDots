@@ -54,3 +54,8 @@ Desktop.ini
 
 # On-device capture artifacts
 tests/artifacts/
+
+# Local working notes (not published)
+AGENTS.md
+CLAUDE.md
+goal.md

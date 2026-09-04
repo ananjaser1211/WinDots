@@ -14,7 +14,7 @@ WinDots is licensed under GPL-3.0-or-later. The full text is in `LICENSE`.
 ## Consequences
 
 - Licence-compatible with the reference project, so studying and describing its behaviour is unproblematic.
-- WinDots is still an independent implementation: no Caelestia QML, shaders, icons, or assets are copied. The `AGENTS.md` prohibition stays in force because WinDots targets a different platform and copying would not be useful anyway.
+- WinDots is still an independent implementation: no Caelestia QML, shaders, icons, or assets are copied. The no-copying rule stays in force because WinDots targets a different platform and copying would not be useful anyway.
 - Third-party packages must be GPL-3.0-compatible (MIT, Apache-2.0, BSD, LGPL, MPL are fine). The Windows App SDK is MIT-licensed.
 - Distributed builds must include the licence text and offer corresponding source.
 
