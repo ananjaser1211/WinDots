@@ -67,6 +67,16 @@ Observed on every run: PowerToys Peek leaves a metadata-less paused session behi
 
 Platform behaviour established while fixing session identity (2026-09-04, Windows 11 26200): `GetSessions()` returns a new COM object per call for the same session, so wrappers are matched by state fingerprint (`_docs/05-architecture.md`, "Session identity"); an exited player's session object keeps answering `GetPlaybackInfo` at the moment the removal event fires and only starts throwing afterwards, so liveness probing cannot replace matching.
 
+## Shell check (on device, no input injection)
+
+Never test the shell by injecting global keyboard or mouse input; it lands in whatever window is foreground (it has stopped the developer's own terminal session). The app exposes a diagnostics hook instead: post `WM_APP+2` (`0x8002`) to the hidden window of class `WinDots.ShellMessageWindow` with `wParam` = command (1 toggle at cursor, 2 toggle on monitor index `lParam`, 3 dismiss, 4 inspector, 5 quit, 6 dump state) and read the log at `%LOCALAPPDATA%\Packages\<pfn>\LocalState\logs\shell.log`.
+
+```powershell
+.\tests\scripts\Invoke-ShellCheck.ps1 -Launch   # registers the Debug build, launches, drives, quits
+```
+
+It asserts one process, one handle per monitor, open/close via the hook, foreground ownership after open, cross-monitor move, settle interruption, and Quit. If pixels are needed, capture only the drawer's own rectangle with `Graphics.CopyFromScreen`; `PrintWindow` renders WinUI content black.
+
 ## Manual checklist per milestone
 
 - **M2 drawer**: open/close 50 times via click, drag, shortcut, Escape, outside click; no focus theft while collapsed; handle invisible to Alt+Tab; 125 % and 150 % DPI; taskbar top/left/auto-hide.

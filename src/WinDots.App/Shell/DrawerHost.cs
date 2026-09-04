@@ -1,0 +1,410 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Microsoft.UI.Dispatching;
+using Windows.UI.ViewManagement;
+using WinDots.App.Diagnostics;
+using WinDots.Core.Contracts;
+using WinDots.Core.Drawer;
+
+namespace WinDots.App.Shell;
+
+/// <summary>
+/// Owns the shared <see cref="DrawerController"/>, one <see cref="HandleWindow"/> per enabled monitor, the single
+/// <see cref="DrawerWindow"/>, and the record of which monitor the drawer is on. Everything here runs on the UI
+/// thread; only provider and monitor events cross threads and they are marshalled here. Settling motion is a
+/// <see cref="SpringMotion"/> stepped by a UI-thread timer because the reveal resizes the window itself.
+/// </summary>
+public sealed class DrawerHost
+{
+    private static readonly TimeSpan FrameInterval = TimeSpan.FromMilliseconds(8);
+    private static readonly TimeSpan ReducedMotionDuration = TimeSpan.FromMilliseconds(150);
+
+    private readonly IMediaSessionProvider _provider;
+    private readonly IMonitorService _monitors;
+    private readonly DispatcherQueue _dispatcher;
+    private readonly DrawerController _controller;
+    private readonly DrawerWindow _drawer;
+    private readonly List<HandleWindow> _handles = new();
+    private readonly DispatcherQueueTimer _frameTimer;
+    private readonly SpringMotion _spring = new() { PositionTolerance = 0.5, VelocityTolerance = 2 };
+
+    private MonitorInfo _activeMonitor;
+    private MonitorInfo? _pendingMonitor;
+    private bool _drawerShown;
+    private nint _previousForeground;
+    private long _lastFrameTicks;
+    private double _reducedFrom;
+    private double _reducedTo;
+    private TimeSpan _reducedElapsed;
+    private string _topologyKey = string.Empty;
+
+    public DrawerHost(IMediaSessionProvider provider, IMonitorService monitors, DispatcherQueue dispatcher)
+    {
+        _provider = provider;
+        _monitors = monitors;
+        _dispatcher = dispatcher;
+
+        var reducedMotion = !new UISettings().AnimationsEnabled;
+        var options = new DrawerOptions(DrawerHeight: DrawerWindow.DesignHeight, ReducedMotion: reducedMotion);
+        _controller = new DrawerController(options);
+        _controller.Transition += OnTransition;
+
+        _frameTimer = _dispatcher.CreateTimer();
+        _frameTimer.Interval = FrameInterval;
+        _frameTimer.IsRepeating = true;
+        _frameTimer.Tick += OnFrame;
+
+        _activeMonitor = PickDefaultMonitor();
+        _drawer = new DrawerWindow(this, provider);
+
+        BuildHandles();
+        _monitors.TopologyChanged += OnTopologyChanged;
+
+        Instance = this;
+        ShellLog.Write($"host ready: monitors={_monitors.Monitors.Count} reducedMotion={reducedMotion}");
+    }
+
+    /// <summary>Set on construction so the tray menu can reach <see cref="ShowInspector"/>.</summary>
+    public static DrawerHost? Instance { get; private set; }
+
+    internal DrawerController Controller => _controller;
+
+    /// <summary>Opens the inspector spike window.</summary>
+    public static void ShowInspector()
+    {
+        if (Instance is null)
+        {
+            return;
+        }
+
+        var window = new SessionInspectorWindow(Instance._provider);
+        window.Activate();
+    }
+
+    /// <summary>
+    /// Toggles the drawer, targeting the given monitor. If the drawer is open on another monitor it closes there
+    /// first and reopens on the target once the close has finished (see <see cref="FinalizeClose"/>).
+    /// </summary>
+    public void Toggle(MonitorInfo monitor)
+    {
+        if (TryRequestMonitorSwitch(monitor))
+        {
+            return;
+        }
+
+        _pendingMonitor = null;
+        _activeMonitor = monitor;
+        _controller.Toggle();
+    }
+
+    /// <summary>Toggles the drawer on the monitor that currently contains the pointer (global-hotkey / tray path).</summary>
+    public void ToggleAtCursor() => Toggle(MonitorAtCursor());
+
+    /// <summary>Diagnostics hook: toggles on the monitor at <paramref name="index"/> in enumeration order.</summary>
+    public void ToggleOnMonitorIndex(int index)
+    {
+        var list = _monitors.Monitors;
+        if (index < 0 || index >= list.Count)
+        {
+            ShellLog.Write($"toggle: monitor index {index} out of range ({list.Count})");
+            return;
+        }
+
+        Toggle(list[index]);
+    }
+
+    /// <summary>Diagnostics hook and Escape path.</summary>
+    public void Dismiss(DismissReason reason) => _controller.Dismiss(reason);
+
+    /// <summary>
+    /// Closes every window this host owns. WinUI keeps the process alive while any window exists, so Quit must call
+    /// this before <c>Application.Exit</c>.
+    /// </summary>
+    public void Shutdown()
+    {
+        _frameTimer.Stop();
+        _monitors.TopologyChanged -= OnTopologyChanged;
+        _controller.Transition -= OnTransition;
+        _drawer.HideWindow();
+        _drawer.Close();
+        foreach (var handle in _handles.ToArray())
+        {
+            handle.Close();
+        }
+
+        _handles.Clear();
+        ShellLog.Write("host shut down");
+    }
+
+    /// <summary>Diagnostics hook: writes the host's state to the shell log.</summary>
+    public void DumpState()
+    {
+        ShellLog.Write(
+            $"state: controller={_controller.State} progress={_controller.Progress:0.###} shown={_drawerShown} " +
+            $"active={_activeMonitor.DeviceId} pending={_pendingMonitor?.DeviceId ?? "-"} handles={_handles.Count} " +
+            $"drawerHwnd=0x{_drawer.Hwnd:X} foregroundIsDrawer={NativeInterop.GetForegroundWindow() == _drawer.Hwnd}");
+    }
+
+    private MonitorInfo MonitorAtCursor()
+    {
+        if (NativeInterop.GetCursorPos(out var pt))
+        {
+            // MonitorInfo.Bounds is in physical pixels, as is the cursor position.
+            foreach (var monitor in _monitors.Monitors)
+            {
+                var b = monitor.Bounds;
+                if (pt.X >= b.X && pt.X < b.X + b.Width && pt.Y >= b.Y && pt.Y < b.Y + b.Height)
+                {
+                    return monitor;
+                }
+            }
+        }
+
+        return PickDefaultMonitor();
+    }
+
+    /// <summary>
+    /// If the drawer is currently shown on a different monitor, starts closing it there and schedules a reopen on
+    /// <paramref name="monitor"/>. Returns false when no switch is needed (caller proceeds normally).
+    /// </summary>
+    internal bool TryRequestMonitorSwitch(MonitorInfo monitor)
+    {
+        if (!_drawerShown || monitor.DeviceId == _activeMonitor.DeviceId)
+        {
+            return false;
+        }
+
+        ShellLog.Write($"monitor switch requested: {_activeMonitor.DeviceId} -> {monitor.DeviceId}");
+        _pendingMonitor = monitor;
+        if (_controller.State is DrawerState.Open or DrawerState.Dragging or DrawerState.SettlingOpen)
+        {
+            _controller.Dismiss(DismissReason.MonitorChange);
+        }
+
+        return true;
+    }
+
+    internal void SetActiveMonitor(MonitorInfo monitor)
+    {
+        if (!_drawerShown)
+        {
+            _activeMonitor = monitor;
+        }
+    }
+
+    /// <summary>Called after each pointer sample so the drawer can follow the pointer during a drag.</summary>
+    internal void OnDragSampleFed()
+    {
+        if (_controller.State == DrawerState.Dragging && _drawerShown)
+        {
+            _drawer.ApplyProgress(_controller.Progress);
+        }
+    }
+
+    private void OnTransition(object? sender, DrawerTransition e)
+    {
+        ShellLog.Write($"transition {e.From} -> {e.To} progress={e.Progress:0.###} v={e.VelocityPxPerSecond:0}");
+        switch (e.To)
+        {
+            case DrawerState.Dragging:
+                StopMotion();
+                EnsureShown();
+                _drawer.ApplyProgress(_controller.Progress);
+                break;
+
+            case DrawerState.SettlingOpen:
+                EnsureShown();
+                StartSpring(target: 1, e.VelocityPxPerSecond);
+                break;
+
+            case DrawerState.SettlingClosed:
+                StartSpring(target: 0, e.VelocityPxPerSecond);
+                break;
+
+            case DrawerState.Open:
+                StopMotion();
+                EnsureShown();
+                if (_controller.Options.ReducedMotion && e.From != DrawerState.SettlingOpen)
+                {
+                    StartReducedMotion(from: _controller.Progress, to: 1, thenActivate: true);
+                }
+                else
+                {
+                    _drawer.ApplyProgress(1);
+                    _drawer.ActivateForKeyboard();
+                }
+
+                break;
+
+            case DrawerState.Closed:
+                StopMotion();
+                if (_controller.Options.ReducedMotion && _drawerShown && e.From != DrawerState.SettlingClosed)
+                {
+                    StartReducedMotion(from: _controller.Progress, to: 0, thenActivate: false);
+                }
+                else
+                {
+                    FinalizeClose();
+                }
+
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    private void StartSpring(double target, double velocityPxPerSecond)
+    {
+        // Spring state is in logical pixels of reveal; velocity from the gesture carries into the settle.
+        var height = _drawer.HeightLogical;
+        _spring.Start(_controller.Progress * height, velocityPxPerSecond, target * height);
+        _reducedElapsed = TimeSpan.MinValue;
+        _lastFrameTicks = Environment.TickCount64;
+        _frameTimer.Start();
+    }
+
+    private void StartReducedMotion(double from, double to, bool thenActivate)
+    {
+        _reducedFrom = from;
+        _reducedTo = to;
+        _reducedElapsed = TimeSpan.Zero;
+        _lastFrameTicks = Environment.TickCount64;
+        _frameTimer.Start();
+        if (thenActivate)
+        {
+            _drawer.ActivateForKeyboard();
+        }
+    }
+
+    private void StopMotion() => _frameTimer.Stop();
+
+    private void OnFrame(DispatcherQueueTimer sender, object args)
+    {
+        var now = Environment.TickCount64;
+        var elapsed = TimeSpan.FromMilliseconds(Math.Max(0, now - _lastFrameTicks));
+        _lastFrameTicks = now;
+
+        if (_reducedElapsed != TimeSpan.MinValue)
+        {
+            _reducedElapsed += elapsed;
+            var t = Math.Clamp(_reducedElapsed / ReducedMotionDuration, 0, 1);
+            var p = _reducedFrom + ((_reducedTo - _reducedFrom) * t);
+            _drawer.ApplyProgress(p);
+            if (t >= 1)
+            {
+                _frameTimer.Stop();
+                if (_reducedTo == 0)
+                {
+                    FinalizeClose();
+                }
+            }
+
+            return;
+        }
+
+        var height = _drawer.HeightLogical;
+        var settled = _spring.Step(elapsed);
+        _drawer.ApplyProgress(_spring.Position / height);
+        if (settled)
+        {
+            _frameTimer.Stop();
+            _controller.AnimationCompleted();
+        }
+    }
+
+    private void EnsureShown()
+    {
+        if (_drawerShown)
+        {
+            return;
+        }
+
+        // Remember where to return focus, but never to one of our own windows (the tray menu briefly makes the
+        // hidden message window foreground); restoring focus to a hidden window would strand the keyboard.
+        _previousForeground = NativeInterop.IsForegroundOwnedByThisProcess() ? 0 : NativeInterop.GetForegroundWindow();
+        _drawer.MoveToMonitor(_activeMonitor);
+        _drawer.ShowAtProgress(0);
+        _drawerShown = true;
+        ShellLog.Write($"drawer shown on {_activeMonitor.DeviceId} (scale {_activeMonitor.Scale})");
+    }
+
+    private void FinalizeClose()
+    {
+        _frameTimer.Stop();
+        _drawer.HideWindow();
+        _drawerShown = false;
+        ShellLog.Write("drawer hidden");
+        if (_previousForeground != 0)
+        {
+            _ = NativeInterop.SetForegroundWindow(_previousForeground);
+            _previousForeground = 0;
+        }
+
+        // A cross-monitor toggle closed the drawer here; reopen it on the requested monitor once this transition
+        // has fully unwound (Toggle re-enters the controller, which must not happen inside its own event).
+        if (_pendingMonitor is { } next)
+        {
+            _pendingMonitor = null;
+            _dispatcher.TryEnqueue(() => Toggle(next));
+        }
+    }
+
+    private void OnTopologyChanged(object? sender, EventArgs e) => _dispatcher.TryEnqueue(RebuildForTopology);
+
+    private void RebuildForTopology()
+    {
+        var key = TopologyKey(_monitors.Monitors);
+        if (key == _topologyKey)
+        {
+            ShellLog.Write("topology event with identical layout: ignored");
+            return;
+        }
+
+        ShellLog.Write($"topology changed: {key}");
+        _pendingMonitor = null;
+        if (_drawerShown)
+        {
+            _controller.Dismiss(DismissReason.MonitorChange);
+            FinalizeClose();
+        }
+
+        BuildHandles();
+
+        // Keep the active monitor valid after the topology change.
+        if (_monitors.Monitors.All(m => m.DeviceId != _activeMonitor.DeviceId))
+        {
+            _activeMonitor = PickDefaultMonitor();
+        }
+    }
+
+    private static string TopologyKey(IReadOnlyList<MonitorInfo> monitors) =>
+        string.Join(";", monitors.Select(m => $"{m.DeviceId}:{m.Bounds}:{m.WorkArea}:{m.Scale}:{m.IsPrimary}"));
+
+    private void BuildHandles()
+    {
+        var old = _handles.ToArray();
+        _handles.Clear();
+        _topologyKey = TopologyKey(_monitors.Monitors);
+
+        foreach (var monitor in _monitors.Monitors)
+        {
+            _handles.Add(new HandleWindow(monitor, this));
+        }
+
+        ShellLog.Write($"handles built: {_handles.Count} (closing {old.Length} old)");
+
+        // Close the previous handles only after the replacements exist, so the app never drops to zero windows.
+        foreach (var handle in old)
+        {
+            handle.Close();
+        }
+    }
+
+    private MonitorInfo PickDefaultMonitor()
+    {
+        var list = _monitors.Monitors;
+        return list.FirstOrDefault(m => m.IsPrimary) ?? list[0];
+    }
+}

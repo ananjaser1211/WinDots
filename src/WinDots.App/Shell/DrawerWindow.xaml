@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="WinDots.App.Shell.DrawerWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- The window is resized from the top edge to reveal the drawer; Root keeps its full design height and is
+         translated so its bottom edge stays on the window's bottom edge. -->
+    <Grid x:Name="RootHost" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}" VerticalAlignment="Top">
+        <Border
+            x:Name="Root"
+            VerticalAlignment="Top"
+            Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1"
+            CornerRadius="0,0,24,24">
+            <Grid Padding="24,16">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- Top 24px band accepts upward drags to close. -->
+                <Border
+                    x:Name="DragBand"
+                    Grid.Row="0"
+                    Height="24"
+                    Background="Transparent"
+                    VerticalAlignment="Top" />
+
+                <!-- Not hit-testable so drags that begin on the title still reach the band underneath. -->
+                <TextBlock
+                    Grid.Row="0"
+                    Text="WinDots"
+                    VerticalAlignment="Center"
+                    IsHitTestVisible="False"
+                    Style="{ThemeResource TitleTextBlockStyle}" />
+
+                <TextBlock
+                    x:Name="SessionsText"
+                    Grid.Row="1"
+                    Margin="0,12,0,0"
+                    Text="Sessions: 0"
+                    Style="{ThemeResource BodyTextBlockStyle}"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+                <TextBlock
+                    Grid.Row="2"
+                    Margin="0,12,0,0"
+                    VerticalAlignment="Bottom"
+                    Text="Media page arrives in Milestone 3."
+                    Style="{ThemeResource CaptionTextBlockStyle}"
+                    Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

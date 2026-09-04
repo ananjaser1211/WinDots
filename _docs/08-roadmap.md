@@ -23,13 +23,14 @@ Branch naming: `feat/<area>`, `fix/<area>`, `docs/<area>`. Every milestone ends 
   - Session identity is AUMID plus ordinal. Fixed: wrappers are matched across enumerations by state fingerprint (`05-architecture.md`, "Session identity"), so a survivor keeps its ID when a duplicate leaves and `SystemCurrent` resolves to the right duplicate; covered by `DuplicateLeavingKeepsSurvivorIdentity`.
   - VLC 3 is unsupported by design of the platform, not a WinDots bug.
 
-### M2 Drawer interaction - `feat/drawer-gesture`
-1. `DrawerController`, `VelocityTracker` in Core with tests.
-2. `HandleWindow` (per monitor) and `DrawerWindow` with the styles in `05-architecture.md`.
-3. Composition translate + spring; reduced-motion path.
-4. Shortcut, Escape, outside click, tray icon.
-5. `MonitorService` with topology events.
-- **Exit**: the M2 checklist in `07-testing-and-compatibility.md` passes at 100 % and 150 % DPI; ADR 0003 updated to Accepted or Superseded.
+### M2 Drawer interaction - `feat/foundation` (done 2026-09-04)
+1. Done: `DrawerController`, `VelocityTracker`, `SpringMotion` in Core with tests (commit `bb5f50d` and later).
+2. Done: `HandleWindow` (per monitor) and `DrawerWindow`; two-window design validated, ADR 0003 Accepted with amendments (resize-based reveal, no manual `WS_*` edits, forced foreground).
+3. Done: spring settle via `SpringMotion` on an 8 ms UI timer; reduced-motion 150 ms ramp.
+4. Done: Win+Shift+M hotkey, Escape, click-outside, tray icon with menu, diagnostics command hook (`ShellMessageWindow`).
+5. Done: `MonitorService` with topology events (commit `bc88694`); identical-layout events are ignored so handles are never duplicated.
+- **Exit met**: `tests/scripts/Invoke-ShellCheck.ps1` passes on a dual-monitor setup at 100 % and 125 % (150 % not available on this machine); handles never activate; drawer takes foreground after open; cross-monitor move and settle interruption work.
+- Open polish for M4: the handle is an opaque 200x12 strip (WinUI windows cannot be transparent yet); the drawer has no acrylic; hover growth is unverified by script.
 
 ### M3 Functional media - `feat/media-ui`
 1. `SessionCoordinator` + tests; `TimelineInterpolator` + tests.
