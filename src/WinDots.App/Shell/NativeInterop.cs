@@ -29,6 +29,10 @@ internal static class NativeInterop
     public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
     public const int DWMWCP_ROUND = 2;
 
+    // GetSystemMetrics: nonzero when the process is running in a Remote Desktop / Terminal Services session,
+    // where a live acrylic backdrop is unavailable and must fall back to an opaque surface.
+    public const int SM_REMOTESESSION = 0x1000;
+
     // Hotkey modifiers (RegisterHotKey) and the 'M' virtual-key.
     public const uint MOD_ALT = 0x0001;
     public const uint MOD_CONTROL = 0x0002;
@@ -247,11 +251,41 @@ internal static class NativeInterop
     [DllImport("user32.dll")]
     private static extern nint SetFocus(nint hWnd);
 
+    /// <summary>True when this process is running inside a Remote Desktop session (acrylic must fall back).</summary>
+    public static bool IsRemoteSession() => GetSystemMetrics(SM_REMOTESESSION) != 0;
+
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int nIndex);
+
     public static void SetRoundedCorners(nint hwnd)
     {
         var pref = DWMWCP_ROUND;
         _ = DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref pref, sizeof(int));
     }
+
+    /// <summary>
+    /// Clips <paramref name="hwnd"/> to a fully rounded (stadium) region the size of its client area, in physical
+    /// pixels, so the window itself reads as the collapsed pill and its corners are transparent and click-through.
+    /// Call after every move/resize; <see cref="SetWindowRgn"/> takes ownership of the region handle, so the caller
+    /// must not delete it. A radius equal to the height rounds each end into a semicircle.
+    /// </summary>
+    public static void SetPillRegion(nint hwnd, int physicalWidth, int physicalHeight)
+    {
+        if (physicalWidth <= 0 || physicalHeight <= 0)
+        {
+            return;
+        }
+
+        // +1 because CreateRoundRectRgn's right/bottom are exclusive; the ellipse axes are the full height for a stadium.
+        var region = CreateRoundRectRgn(0, 0, physicalWidth + 1, physicalHeight + 1, physicalHeight, physicalHeight);
+        _ = SetWindowRgn(hwnd, region, bRedraw: true);
+    }
+
+    [DllImport("gdi32.dll")]
+    private static extern nint CreateRoundRectRgn(int left, int top, int right, int bottom, int widthEllipse, int heightEllipse);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int SetWindowRgn(nint hWnd, nint hRgn, [MarshalAs(UnmanagedType.Bool)] bool bRedraw);
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
     private static extern nint GetWindowLongPtr(nint hWnd, int nIndex);

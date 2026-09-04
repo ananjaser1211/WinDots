@@ -23,6 +23,8 @@ public interface IPaletteService
 {
     Palette FromArtwork(ReadOnlySpan<byte> bgra, int width, int height, bool darkTheme);
 
+    Palette FromAccent(uint accent, bool darkTheme);
+
     Palette Fallback(bool darkTheme);
 }
 

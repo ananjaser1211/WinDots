@@ -1,18 +1,23 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Windows.Graphics.Imaging;
 using Windows.Storage.Streams;
 using WinDots.App.Diagnostics;
 using WinDots.App.Media.Controls;
 using WinDots.Core.Contracts;
+using WinDots.Core.Design;
 using WinDots.Core.Media;
+using WinDots.Core.Settings;
 
 namespace WinDots.App.Media;
 
@@ -31,6 +36,14 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
 {
     private const int ArtworkMaxBytes = 8 * 1024 * 1024;
     private const int ArtworkDecodeWidth = 440;
+
+    // Palette extraction decodes a fixed 64x64 BGRA copy (see _docs/04-visual-design.md); WdMotionSlowMs is the
+    // 400 ms colour cross-fade for the palette transition.
+    private const int PaletteDim = 64;
+    private const int PaletteMotionMs = 400;
+
+    // Reduced motion maps every token to a 100 ms linear transition (_docs/04-visual-design.md).
+    private const int ReducedPaletteMotionMs = 100;
     private static readonly TimeSpan StatusDuration = TimeSpan.FromSeconds(2);
 
     private static readonly TimeSpan VolumeDebounce = TimeSpan.FromMilliseconds(50);
@@ -63,6 +76,24 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
 
     private string? _artworkKey;
     private CancellationTokenSource? _artworkCts;
+
+    // --- Artwork palette (Milestone 4) ---
+    // The four brushes are created once on the UI thread and mutated in place by a 400 ms ColorAnimation, so the
+    // bound controls animate rather than snap. _paletteBgra holds the last decoded 64x64 copy so a theme or
+    // settings change can recompute without re-fetching artwork.
+    private readonly IPaletteService _paletteService = new PaletteService();
+    private readonly SolidColorBrush _accentBrush = new();
+    private readonly SolidColorBrush _onAccentBrush = new();
+    private readonly SolidColorBrush _accentContainerBrush = new();
+    private readonly SolidColorBrush _blobTintBrush = new();
+    private Func<bool>? _isDarkTheme;
+    private PaletteSource _paletteSource = PaletteSource.Artwork;
+    private uint _fixedAccent;
+    private bool _fixedAccentValid;
+    private byte[]? _paletteBgra;
+    private Palette? _currentPalette;
+    private bool _reduceMotion;
+    private bool _highContrast;
 
     private bool _disposed;
 
@@ -131,6 +162,12 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
         {
             _activeSession.Updated += OnSessionUpdated;
         }
+
+        // Seed the palette brushes with the static fallback (identical to the WdAccentBrush token) so bound
+        // controls have colour before any artwork or settings arrive. Created here on the UI thread.
+        Palette initial = _paletteService.Fallback(darkTheme: true);
+        SetBrushColors(initial);
+        _currentPalette = initial;
 
         RefreshFromActive();
         RebuildChooser();
@@ -370,6 +407,18 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
 
     public ImageSource? Artwork { get => _artwork; private set => Set(ref _artwork, value); }
 
+    /// <summary>Dynamic accent brush from the artwork palette. Same instance for life; its colour is animated.</summary>
+    public SolidColorBrush AccentBrush => _accentBrush;
+
+    /// <summary>Readable colour to place on top of <see cref="AccentBrush"/> (e.g. the play pill glyph).</summary>
+    public SolidColorBrush OnAccentBrush => _onAccentBrush;
+
+    /// <summary>Accent at 18 % over the surface, for tonal containers.</summary>
+    public SolidColorBrush AccentContainerBrush => _accentContainerBrush;
+
+    /// <summary>Accent at 8 %, the background-blob tint.</summary>
+    public SolidColorBrush BlobTintBrush => _blobTintBrush;
+
     public IReadOnlyList<PlayerChooserItem> ChooserItems
     {
         get => _chooserItems;
@@ -594,6 +643,8 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
         CancelArtworkLoad();
         _artworkKey = null;
         Artwork = null;
+        _paletteBgra = null;
+        ApplyPalette();
 
         RefreshChooserLabel();
     }
@@ -729,6 +780,8 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
         if (key is null)
         {
             Artwork = null;
+            _paletteBgra = null;
+            ApplyPalette();
             return;
         }
 
@@ -753,10 +806,13 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
             if (cached is null || cached.Bytes.IsEmpty)
             {
                 Artwork = null;
+                _paletteBgra = null;
+                ApplyPalette();
                 return;
             }
 
-            BitmapImage? image = await DecodeAsync(cached.Bytes.ToArray(), ct).ConfigureAwait(true);
+            byte[] raw = cached.Bytes.ToArray();
+            BitmapImage? image = await DecodeAsync(raw, ct).ConfigureAwait(true);
 
             if (ct.IsCancellationRequested || !string.Equals(key, _artworkKey, StringComparison.Ordinal))
             {
@@ -764,6 +820,20 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
             }
 
             Artwork = image;
+
+            // A fixed accent ignores artwork entirely; only extract when the palette follows the artwork.
+            if (_paletteSource != PaletteSource.Fixed)
+            {
+                byte[]? bgra = await DecodePaletteBgraAsync(raw, ct).ConfigureAwait(true);
+
+                if (ct.IsCancellationRequested || !string.Equals(key, _artworkKey, StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                _paletteBgra = bgra;
+                ApplyPalette();
+            }
         }
         catch (OperationCanceledException)
         {
@@ -802,6 +872,209 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
 
             cts.Dispose();
         }
+    }
+
+    // --- Artwork palette ---
+
+    /// <summary>
+    /// Supplies the theme accessor and the palette settings. The <paramref name="isDarkTheme"/> callback is invoked
+    /// on the UI thread and typically reads the page's <c>ActualTheme</c>. Applies the palette immediately.
+    /// </summary>
+    public void ConfigurePalette(Func<bool> isDarkTheme, PaletteSource source, string fixedAccent)
+    {
+        _isDarkTheme = isDarkTheme ?? throw new ArgumentNullException(nameof(isDarkTheme));
+        SetPaletteSettings(source, fixedAccent);
+    }
+
+    /// <summary>Applies a live change to <c>appearance.paletteSource</c> / <c>appearance.fixedAccent</c>.</summary>
+    public void SetPaletteSettings(PaletteSource source, string fixedAccent)
+    {
+        _paletteSource = source;
+        _fixedAccentValid = TryParseAccent(fixedAccent, out _fixedAccent);
+        ApplyPalette();
+    }
+
+    /// <summary>Recomputes the palette for the current theme (call when <c>ActualTheme</c> changes).</summary>
+    public void RefreshPalette() => ApplyPalette();
+
+    /// <summary>
+    /// Applies the accessibility state to the dynamic accent brushes: reduced motion collapses the cross-fade to a
+    /// 100 ms linear transition, and high contrast remaps every dynamic brush to the <c>SystemColor*</c> brushes so
+    /// they honour the user's high-contrast scheme rather than the artwork accent (_docs/04-visual-design.md).
+    /// </summary>
+    public void SetAccessibility(bool reduceMotion, bool highContrast)
+    {
+        _reduceMotion = reduceMotion;
+        _highContrast = highContrast;
+        ApplyPalette();
+    }
+
+    private bool IsDarkTheme() => _isDarkTheme?.Invoke() ?? true;
+
+    private static bool TryParseAccent(string? value, out uint color)
+    {
+        color = 0;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        string hex = value.Trim();
+        if (hex.StartsWith('#'))
+        {
+            hex = hex[1..];
+        }
+
+        if (hex.Length != 6 || !uint.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint rgb))
+        {
+            return false;
+        }
+
+        color = 0xFF000000u | rgb;
+        return true;
+    }
+
+    private void ApplyPalette()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (_highContrast)
+        {
+            // High contrast: bind the dynamic brushes to the SystemColor* brushes (the HighContrast ThemeDictionary
+            // in Tokens.xaml). Snap, and force a recompute when high contrast turns back off.
+            ApplyHighContrastBrushes();
+            _currentPalette = null;
+            return;
+        }
+
+        bool dark = IsDarkTheme();
+        Palette palette;
+        if (_paletteSource == PaletteSource.Fixed)
+        {
+            palette = _fixedAccentValid
+                ? _paletteService.FromAccent(_fixedAccent, dark)
+                : _paletteService.Fallback(dark);
+        }
+        else if (_paletteBgra is { } bgra)
+        {
+            palette = _paletteService.FromArtwork(bgra, PaletteDim, PaletteDim, dark);
+        }
+        else
+        {
+            palette = _paletteService.Fallback(dark);
+        }
+
+        if (_currentPalette == palette)
+        {
+            return;
+        }
+
+        _currentPalette = palette;
+        ShellLog.Write($"palette: fallback={palette.IsFallback} accent=#{palette.Accent & 0x00FFFFFF:X6}");
+        AnimatePalette(palette);
+    }
+
+    private void AnimatePalette(Palette palette)
+    {
+        // Reduced motion collapses the cross-fade to 100 ms linear (_docs/04-visual-design.md); otherwise 400 ms.
+        int durationMs = _reduceMotion ? ReducedPaletteMotionMs : PaletteMotionMs;
+        var storyboard = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
+        AddColorAnimation(storyboard, _accentBrush, ToColor(palette.Accent), durationMs);
+        AddColorAnimation(storyboard, _onAccentBrush, ToColor(palette.OnAccent), durationMs);
+        AddColorAnimation(storyboard, _accentContainerBrush, ToColor(palette.AccentContainer), durationMs);
+        AddColorAnimation(storyboard, _blobTintBrush, ToColor(palette.BlobTint), durationMs);
+        storyboard.Begin();
+    }
+
+    private static void AddColorAnimation(Microsoft.UI.Xaml.Media.Animation.Storyboard storyboard, SolidColorBrush brush, global::Windows.UI.Color to, int durationMs)
+    {
+        var animation = new Microsoft.UI.Xaml.Media.Animation.ColorAnimation
+        {
+            To = to,
+            Duration = new Duration(TimeSpan.FromMilliseconds(durationMs)),
+            EnableDependentAnimation = true,
+        };
+        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(animation, brush);
+        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(animation, "Color");
+        storyboard.Children.Add(animation);
+    }
+
+    /// <summary>
+    /// Snaps the dynamic accent brushes to the high-contrast SystemColor* values from the HighContrast
+    /// ThemeDictionary in Tokens.xaml (WdAccentBrush = SystemColorHighlight, WdOnAccentBrush = SystemColorHighlightText).
+    /// The container and blob tint follow the accent so no artwork-derived colour leaks into a high-contrast scheme.
+    /// </summary>
+    private void ApplyHighContrastBrushes()
+    {
+        if (TryGetThemeBrushColor("HighContrast", "WdAccentBrush", out global::Windows.UI.Color accent))
+        {
+            _accentBrush.Color = accent;
+            _accentContainerBrush.Color = accent;
+            _blobTintBrush.Color = accent;
+        }
+
+        if (TryGetThemeBrushColor("HighContrast", "WdOnAccentBrush", out global::Windows.UI.Color onAccent))
+        {
+            _onAccentBrush.Color = onAccent;
+        }
+    }
+
+    private static bool TryGetThemeBrushColor(string themeKey, string brushKey, out global::Windows.UI.Color color)
+    {
+        foreach (ResourceDictionary md in Application.Current.Resources.MergedDictionaries)
+        {
+            if (md.ThemeDictionaries.TryGetValue(themeKey, out object? themed) &&
+                themed is ResourceDictionary dict &&
+                dict.TryGetValue(brushKey, out object? brush) &&
+                brush is SolidColorBrush scb)
+            {
+                color = scb.Color;
+                return true;
+            }
+        }
+
+        color = default;
+        return false;
+    }
+
+    private void SetBrushColors(Palette palette)
+    {
+        _accentBrush.Color = ToColor(palette.Accent);
+        _onAccentBrush.Color = ToColor(palette.OnAccent);
+        _accentContainerBrush.Color = ToColor(palette.AccentContainer);
+        _blobTintBrush.Color = ToColor(palette.BlobTint);
+    }
+
+    private static global::Windows.UI.Color ToColor(uint argb) => global::Windows.UI.Color.FromArgb(
+        (byte)((argb >> 24) & 0xFF),
+        (byte)((argb >> 16) & 0xFF),
+        (byte)((argb >> 8) & 0xFF),
+        (byte)(argb & 0xFF));
+
+    /// <summary>
+    /// Decodes a 64x64 BGRA (straight alpha, no premultiply) copy of the artwork for palette extraction, using the
+    /// same cancellation token as the artwork load. The WinRT decode runs off the UI thread.
+    /// </summary>
+    private static async Task<byte[]?> DecodePaletteBgraAsync(byte[] bytes, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        using var stream = new InMemoryRandomAccessStream();
+        await stream.WriteAsync(bytes.AsBuffer());
+        stream.Seek(0);
+
+        BitmapDecoder decoder = await BitmapDecoder.CreateAsync(stream).AsTask(ct).ConfigureAwait(false);
+        var transform = new BitmapTransform { ScaledWidth = PaletteDim, ScaledHeight = PaletteDim };
+        PixelDataProvider pixels = await decoder.GetPixelDataAsync(
+            BitmapPixelFormat.Bgra8,
+            BitmapAlphaMode.Straight,
+            transform,
+            ExifOrientationMode.IgnoreExifOrientation,
+            ColorManagementMode.DoNotColorManage).AsTask(ct).ConfigureAwait(false);
+
+        return pixels.DetachPixelData();
     }
 
     // --- Command plumbing ---

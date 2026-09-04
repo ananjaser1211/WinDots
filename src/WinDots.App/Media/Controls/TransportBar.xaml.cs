@@ -38,10 +38,28 @@ public sealed partial class TransportBar : UserControl
         typeof(TransportBar),
         new PropertyMetadata(null, OnStateChanged));
 
+    public static readonly DependencyProperty AccentBrushProperty = DependencyProperty.Register(
+        nameof(AccentBrush),
+        typeof(Brush),
+        typeof(TransportBar),
+        new PropertyMetadata(null, OnStateChanged));
+
+    public static readonly DependencyProperty OnAccentBrushProperty = DependencyProperty.Register(
+        nameof(OnAccentBrush),
+        typeof(Brush),
+        typeof(TransportBar),
+        new PropertyMetadata(null));
+
     public TransportBar()
     {
         InitializeComponent();
-        Loaded += (_, _) => UpdateState();
+        Loaded += (_, _) =>
+        {
+            // Fall back to the static accent tokens until the view-model's animated brushes are bound.
+            AccentBrush ??= ResolveBrush("WdAccentBrush");
+            OnAccentBrush ??= ResolveBrush("WdOnAccentBrush");
+            UpdateState();
+        };
     }
 
     /// <summary>Raised when the shuffle button is invoked.</summary>
@@ -87,6 +105,20 @@ public sealed partial class TransportBar : UserControl
         set => SetValue(RepeatModeProperty, value);
     }
 
+    /// <summary>The dynamic accent brush (artwork palette) for the play pill and active-state glyphs.</summary>
+    public Brush? AccentBrush
+    {
+        get => (Brush?)GetValue(AccentBrushProperty);
+        set => SetValue(AccentBrushProperty, value);
+    }
+
+    /// <summary>The on-accent brush used for the play pill glyph.</summary>
+    public Brush? OnAccentBrush
+    {
+        get => (Brush?)GetValue(OnAccentBrushProperty);
+        set => SetValue(OnAccentBrushProperty, value);
+    }
+
     /// <summary>Moves keyboard focus to the play/pause button (initial drawer focus).</summary>
     public void FocusPlayPause() => PlayPauseButton.Focus(FocusState.Programmatic);
 
@@ -112,7 +144,7 @@ public sealed partial class TransportBar : UserControl
         PlayPauseGlyph.Glyph = IsPlaying ? "" : "";
         AutomationProperties.SetName(PlayPauseButton, IsPlaying ? "Pause" : "Play");
 
-        Brush accent = ResolveBrush("WdAccentBrush");
+        Brush accent = AccentBrush ?? ResolveBrush("WdAccentBrush");
         Brush onSurface = ResolveBrush("WdOnSurfaceBrush");
         ShuffleGlyph.Foreground = IsShuffleOn == true ? accent : onSurface;
         RepeatMode? repeat = RepeatMode;

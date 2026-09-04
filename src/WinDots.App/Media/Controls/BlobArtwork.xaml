@@ -29,5 +29,13 @@
         <!-- Two stacked artwork layers for the cross-fade. -->
         <Path x:Name="PathA" Opacity="0" />
         <Path x:Name="PathB" Opacity="0" />
+
+        <!-- High-contrast outline: a 2 px WindowText stroke around the blob (hidden unless high contrast). -->
+        <Path
+            x:Name="OutlineShape"
+            Visibility="Collapsed"
+            Fill="Transparent"
+            StrokeThickness="2"
+            Stroke="{ThemeResource SystemColorWindowTextColorBrush}" />
     </Grid>
 </UserControl>

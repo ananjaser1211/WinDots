@@ -61,6 +61,8 @@ public sealed class DrawerHost
     private bool _drawerShown;
     private nint _previousForeground;
     private readonly IAudioSessionProvider? _audio;
+    private readonly AccessibilitySettings _accessibility = new();
+    private bool _highContrast;
     private long _lastFrameTicks;
     private double _reducedFrom;
     private double _reducedTo;
@@ -110,6 +112,14 @@ public sealed class DrawerHost
         _drawer = new DrawerWindow(this, _viewModel);
         _drawer.SetAlwaysOnTop(current.Drawer.AlwaysOnTop);
 
+        // Artwork palette: the view-model reads the drawer's resolved theme and the palette settings, then derives
+        // the accent (or the fixed accent) with the same contrast floors.
+        _viewModel.ConfigurePalette(() => _drawer.IsDarkTheme, current.Appearance.PaletteSource, current.Appearance.FixedAccent);
+
+        // Backdrop (acrylic vs opaque) and idle-motion / high-contrast appearance effects. High contrast is
+        // re-evaluated on each open (AccessibilitySettings change events need a CoreWindow, absent in WinUI 3 desktop).
+        ApplyAppearanceEffects(current.Appearance);
+
         BuildHandles();
         _monitors.TopologyChanged += OnTopologyChanged;
         _settings.Changed += OnSettingsChanged;
@@ -123,6 +133,28 @@ public sealed class DrawerHost
             $"hideAfterCommand={current.Drawer.HideAfterCommand} alwaysOnTop={current.Drawer.AlwaysOnTop} " +
             $"monitors.mode={current.Monitors.Mode} handleOffsetPercent={current.Monitors.HandleOffsetPercent} " +
             $"timelineTickMs={mediaOptions.TimelineTickMs} aliases={mediaOptions.PlayerAliases.Count}");
+    }
+
+    /// <summary>Pushes the backdrop and idle-motion / high-contrast effects to the drawer for the given appearance.</summary>
+    private void ApplyAppearanceEffects(AppearanceSettings appearance)
+    {
+        _highContrast = ResolveHighContrast();
+        _drawer.ConfigureBackdrop(appearance.Backdrop, _highContrast);
+        bool reduced = ResolveReducedMotion(appearance.ReduceMotion);
+        _drawer.ConfigureVisuals(appearance.BackgroundBlobs, reduced, _highContrast);
+        _viewModel.SetAccessibility(reduced, _highContrast);
+    }
+
+    private bool ResolveHighContrast()
+    {
+        try
+        {
+            return _accessibility.HighContrast;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException)
+        {
+            return false;
+        }
     }
 
     private static bool ResolveReducedMotion(ReduceMotion mode) => mode switch
@@ -495,6 +527,14 @@ public sealed class DrawerHost
         // Remember where to return focus, but never to one of our own windows (the tray menu briefly makes the
         // hidden message window foreground); restoring focus to a hidden window would strand the keyboard.
         _previousForeground = NativeInterop.IsForegroundOwnedByThisProcess() ? 0 : NativeInterop.GetForegroundWindow();
+
+        // Re-evaluate high contrast (no live event on desktop) so the backdrop and HC treatment are current for
+        // this open; only re-apply when it actually changed to avoid needless controller churn.
+        if (ResolveHighContrast() != _highContrast)
+        {
+            ApplyAppearanceEffects(_appearanceSettings);
+        }
+
         _drawer.MoveToMonitor(_activeMonitor);
         _drawer.ShowAtProgress(0);
         _drawerShown = true;
@@ -645,6 +685,8 @@ public sealed class DrawerHost
         }
 
         _viewModel.UpdateOptions(BuildMediaOptions(s));
+        _viewModel.SetPaletteSettings(s.Appearance.PaletteSource, s.Appearance.FixedAccent);
+        ApplyAppearanceEffects(s.Appearance);
         _coordinator.UpdateOptions(BuildMediaOptions(s));
         _drawer.SetAlwaysOnTop(s.Drawer.AlwaysOnTop);
         ResetAutoHide();

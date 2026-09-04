@@ -58,16 +58,27 @@ Two static palettes plus a dynamic accent.
 - Elapsed dots use `Accent`; remaining use `Outline`.
 - Drawn as 72 small `SpriteVisual`s in a `ContainerVisual`, colour updated on each timeline tick (cheap; no per-frame layout).
 
-## Background blobs
+## Collapsed handle (built, M4)
 
-- Three large soft shapes (`BlobTint`, blurred 40 px) placed behind the content at fixed relative anchors, drifting +/-12 px over 30 s.
-- Static positions and no blur under reduced motion or the opaque fallback.
+- The handle **window itself is the pill**: it is sized to the visual (160 x 6 logical at rest, 200 x 8 on hover) and clipped to a fully rounded stadium region with `CreateRoundRectRgn` + `SetWindowRgn` (radius = height), re-applied after every move/resize, so the corners are transparent and click-through. It keeps `WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST`.
+- Hover grows the window (resize + region re-apply) and brightens the fill from `TextFillColorSecondary` to `TextFillColorPrimary`.
+- Deferred: no extra transparent hit margin around the pill (a margin cannot add hittable area inside the region and an opaque one would break the pill look); drag and click behaviour unchanged from M2.
 
-## Backdrop
+## Background blobs (built, M4)
+
+- Three large soft `BlobTint` ellipses (260 / 200 / 180 logical, opacity 0.5) placed behind the content at fixed relative anchors, drifting +/-12 px over 30 s on phase-offset composition Translation loops.
+- Static positions under reduced motion, high contrast, or the opaque fallback; the whole canvas collapses when `appearance.backgroundBlobs` is off.
+- Deferred: the 40 px Gaussian blur on each blob (drawn as flat soft ellipses for now).
+
+## Backdrop (built, M4)
 
 - `DesktopAcrylicController` with tint = `Surface` at 70 % and luminosity 0.9.
-- Fallback to solid `Surface` when `UISettings.AdvancedEffectsEnabled` is false, on battery saver, over Remote Desktop, or when the controller fails.
-- Corners: `DwmSetWindowAttribute(DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND)` plus a composition clip for the bottom-only radius.
+- Fallback to solid `Surface` when `UISettings.AdvancedEffectsEnabled` is false, on battery saver, over Remote Desktop, under high contrast, or when the controller fails; logs `backdrop: acrylic` / `backdrop: opaque (<reason>)`.
+- Corners: `DwmSetWindowAttribute(DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND)`.
+
+## Artwork palette (built, M4)
+
+- Artwork-derived palettes (`IPaletteService.FromArtwork` / `FromAccent` / `Fallback`) drive the accent, on-accent, accent-container, and blob-tint brushes with contrast floors; transitions animate over `Motion.Slow` (400 ms). `appearance.paletteSource` selects extracted, a fixed accent, or the token fallback.
 
 ## Motion tokens
 
@@ -82,7 +93,13 @@ Reduced motion maps every token to 100 ms linear and disables loops.
 
 ## High contrast
 
-When `AccessibilitySettings.HighContrast` is true all colour tokens bind to `SystemColor*` brushes, blob and ring become solid strokes, acrylic is off, and focus rings are 2 px `SystemColorHighlight`.
+When `AccessibilitySettings.HighContrast` is true all colour tokens bind to `SystemColor*` brushes (a `HighContrast` ThemeDictionary in `Tokens.xaml`), the blob draws a 2 px `SystemColorWindowText` outline, the ring dots paint solid `WindowText`, and acrylic is off. Built in M4.
+
+## Accessibility (built, M4)
+
+- Every interactive control carries an `AutomationProperties.Name` (transport buttons, seek/volume sliders, mute, media tab, lyrics "More", player chooser, all settings controls; diagnostics buttons take their name from `Content`).
+- The status caption is a live region (`LiveSetting="Assertive"`); play/pause transitions are announced through a separate hidden `Polite` live `TextBlock` ("Playing" / "Paused").
+- At OS text scale > 150 % or a narrow width the body reflows via `LayoutStates` (VisualStateManager) to two rows — artwork + metadata above, lyrics below — inside the same 720 x 300 drawer, wrapped in a `ScrollViewer` so nothing is clipped.
 
 ## Iconography
 

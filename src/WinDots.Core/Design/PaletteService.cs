@@ -28,6 +28,18 @@ public sealed class PaletteService : IPaletteService
     private const double BlobAlpha = 0x14 / 255.0;
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Used by <c>appearance.paletteSource = fixed</c>: the caller-chosen accent is lightness-adjusted for the
+    /// same AA contrast floor as an extracted accent, then the container/blob/on-accent are derived identically.
+    /// </remarks>
+    public Palette FromAccent(uint accent, bool darkTheme)
+    {
+        uint surface = darkTheme ? SurfaceDark : SurfaceLight;
+        uint adjusted = AdjustForContrast(ColorMath.SrgbToOklab(accent), surface, darkTheme);
+        return BuildPalette(adjusted, darkTheme, isFallback: false);
+    }
+
+    /// <inheritdoc />
     public Palette Fallback(bool darkTheme) =>
         BuildPalette(darkTheme ? FallbackDark : FallbackLight, darkTheme, isFallback: true);
 

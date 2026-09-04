@@ -7,5 +7,10 @@
     VerticalAlignment="Center"
     IsTabStop="False">
 
+    <UserControl.Resources>
+        <!-- High-contrast dot colour: all dots render in WindowText when high contrast is active. -->
+        <SolidColorBrush x:Key="WdHighContrastDotBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+    </UserControl.Resources>
+
     <Canvas x:Name="DotCanvas" />
 </UserControl>

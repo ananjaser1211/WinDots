@@ -1,12 +1,19 @@
 using System;
 using System.Numerics;
+using Microsoft.UI.Composition.SystemBackdrops;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Windows.Graphics;
+using Windows.System.Power;
+using Windows.UI.ViewManagement;
+using WinRT;
 using WinDots.App.Diagnostics;
 using WinDots.App.Media;
 using WinDots.Core.Contracts;
+using WinDots.Core.Settings;
 
 namespace WinDots.App.Shell;
 
@@ -42,6 +49,15 @@ public sealed partial class DrawerWindow : Window
     // deactivation that can accompany opening from a global hotkey never dismisses it immediately.
     private bool _clickOutsideArmed;
 
+    // Acrylic backdrop (_docs/04-visual-design.md). The controller is created lazily when acrylic is chosen and
+    // the environment allows it; otherwise the drawer paints an opaque Surface. Disposed on Close.
+    private DesktopAcrylicController? _acrylicController;
+    private SystemBackdropConfiguration? _backdropConfig;
+    private DispatcherQueueController? _dispatcherQueueController;
+    private Backdrop _backdropSetting = Backdrop.Acrylic;
+    private bool _highContrast;
+    private bool _acrylicActive;
+
     public DrawerWindow(DrawerHost host, MediaViewModel viewModel)
     {
         _host = host;
@@ -74,11 +90,192 @@ public sealed partial class DrawerWindow : Window
         Root.KeyDown += OnRootKeyDown;
         Root.PointerMoved += OnRootActivity;
         Activated += OnActivated;
+
+        // Re-tint and re-theme the acrylic when the drawer's resolved theme changes (system light/dark switch).
+        Page.ActualThemeChanged += OnPageThemeChanged;
+        Closed += OnClosed;
     }
 
     public nint Hwnd => _hwnd;
 
     public double HeightLogical => _heightLogical;
+
+    /// <summary>The drawer's resolved theme, used to key the artwork palette (dark vs light contrast floors).</summary>
+    public bool IsDarkTheme => Page.ActualTheme == ElementTheme.Dark;
+
+    // --- Acrylic backdrop ---
+
+    /// <summary>
+    /// Applies <c>appearance.backdrop</c>. Enables a <see cref="DesktopAcrylicController"/> tinted with the Surface
+    /// token at 70 % / luminosity 0.9 only when acrylic is chosen, high contrast is off, and the environment allows
+    /// it (advanced effects on, not on battery saver, not over Remote Desktop). Any failure falls back to an opaque
+    /// Surface. The reason is logged as <c>backdrop: acrylic</c> or <c>backdrop: opaque (&lt;reason&gt;)</c>.
+    /// </summary>
+    public void ConfigureBackdrop(Backdrop backdrop, bool highContrast)
+    {
+        _backdropSetting = backdrop;
+        _highContrast = highContrast;
+        ApplyBackdrop();
+    }
+
+    private void ApplyBackdrop()
+    {
+        string? reason = BackdropFallbackReason();
+        if (reason is null)
+        {
+            try
+            {
+                EnableAcrylic();
+                SetSurfacesTransparent(true);
+                _acrylicActive = true;
+                ShellLog.Write("backdrop: acrylic");
+                return;
+            }
+            catch (Exception ex)
+            {
+                reason = $"controller failed ({ex.GetType().Name})";
+            }
+        }
+
+        DisableAcrylic();
+        SetSurfacesTransparent(false);
+        _acrylicActive = false;
+        ShellLog.Write($"backdrop: opaque ({reason})");
+    }
+
+    /// <summary>Returns null when acrylic should be used, or a short reason string for the opaque fallback.</summary>
+    private string? BackdropFallbackReason()
+    {
+        if (_backdropSetting != Backdrop.Acrylic)
+        {
+            return "setting=opaque";
+        }
+
+        if (_highContrast)
+        {
+            return "high-contrast";
+        }
+
+        if (!DesktopAcrylicController.IsSupported())
+        {
+            return "unsupported";
+        }
+
+        if (!new UISettings().AdvancedEffectsEnabled)
+        {
+            return "advanced-effects-off";
+        }
+
+        if (PowerManager.EnergySaverStatus == EnergySaverStatus.On)
+        {
+            return "energy-saver";
+        }
+
+        if (NativeInterop.IsRemoteSession())
+        {
+            return "remote-session";
+        }
+
+        return null;
+    }
+
+    private void EnableAcrylic()
+    {
+        EnsureDispatcherQueueController();
+
+        _backdropConfig ??= new SystemBackdropConfiguration { IsInputActive = true };
+        _backdropConfig.Theme = Page.ActualTheme == ElementTheme.Light ? SystemBackdropTheme.Light : SystemBackdropTheme.Dark;
+
+        if (_acrylicController is null)
+        {
+            _acrylicController = new DesktopAcrylicController();
+            _acrylicController.SetSystemBackdropConfiguration(_backdropConfig);
+            _acrylicController.AddSystemBackdropTarget(this.As<Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop>());
+        }
+
+        global::Windows.UI.Color surface = SurfaceColor();
+        _acrylicController.TintColor = surface;
+        _acrylicController.FallbackColor = surface;
+        _acrylicController.TintOpacity = 0.70f;
+        _acrylicController.LuminosityOpacity = 0.90f;
+    }
+
+    private void DisableAcrylic()
+    {
+        if (_acrylicController is not null)
+        {
+            _acrylicController.Dispose();
+            _acrylicController = null;
+        }
+    }
+
+    /// <summary>Toggles the drawer surfaces between transparent (acrylic shows through) and the opaque Surface token.</summary>
+    private void SetSurfacesTransparent(bool transparent)
+    {
+        if (transparent)
+        {
+            RootHost.Background = new SolidColorBrush(global::Microsoft.UI.Colors.Transparent);
+            Root.Background = new SolidColorBrush(global::Microsoft.UI.Colors.Transparent);
+            Page.Background = new SolidColorBrush(global::Microsoft.UI.Colors.Transparent);
+        }
+        else
+        {
+            var surface = new SolidColorBrush(SurfaceColor());
+            RootHost.Background = surface;
+            Root.Background = new SolidColorBrush(SurfaceColor());
+            Page.Background = new SolidColorBrush(SurfaceColor());
+        }
+    }
+
+    /// <summary>The Surface token colour resolved for the drawer's current theme (from Tokens.xaml, theme-aware).</summary>
+    private global::Windows.UI.Color SurfaceColor()
+    {
+        string key = Page.ActualTheme == ElementTheme.Light ? "Light" : "Default";
+        foreach (ResourceDictionary md in Application.Current.Resources.MergedDictionaries)
+        {
+            if (md.ThemeDictionaries.TryGetValue(key, out object? themed) &&
+                themed is ResourceDictionary dict &&
+                dict.TryGetValue("WdSurfaceBrush", out object? brush) &&
+                brush is SolidColorBrush scb)
+            {
+                return scb.Color;
+            }
+        }
+
+        // Token fallback (dark Surface) if the dictionary cannot be resolved.
+        return global::Windows.UI.Color.FromArgb(0xFF, 0x10, 0x14, 0x16);
+    }
+
+    private void EnsureDispatcherQueueController()
+    {
+        // The WinUI UI thread already owns a DispatcherQueue, which is all the acrylic controller needs. Only create
+        // one on the rare thread that lacks it (defensive; not expected in this single-UI-thread app).
+        if (DispatcherQueue.GetForCurrentThread() is not null || _dispatcherQueueController is not null)
+        {
+            return;
+        }
+
+        _dispatcherQueueController = DispatcherQueueController.CreateOnCurrentThread();
+    }
+
+    private void OnPageThemeChanged(FrameworkElement sender, object args)
+    {
+        if (_acrylicActive)
+        {
+            ApplyBackdrop();
+        }
+    }
+
+    private void OnClosed(object sender, WindowEventArgs args)
+    {
+        Page.ActualThemeChanged -= OnPageThemeChanged;
+        DisableAcrylic();
+        if (_dispatcherQueueController is not null)
+        {
+            _ = _dispatcherQueueController.ShutdownQueueAsync();
+            _dispatcherQueueController = null;
+        }
+    }
 
     private void ConfigurePresenter()
     {
@@ -93,6 +290,10 @@ public sealed partial class DrawerWindow : Window
         AppWindow.IsShownInSwitchers = false;
         _presenter = presenter;
     }
+
+    /// <summary>Forwards the idle-motion / high-contrast appearance settings to the media page.</summary>
+    public void ConfigureVisuals(bool backgroundBlobs, bool reducedMotion, bool highContrast) =>
+        Page.SetVisualEffects(backgroundBlobs, reducedMotion, highContrast);
 
     /// <summary>Applies <c>drawer.alwaysOnTop</c>: keeps the open drawer topmost when true.</summary>
     public void SetAlwaysOnTop(bool value)
@@ -130,6 +331,7 @@ public sealed partial class DrawerWindow : Window
             AppWindow.Show(activateWindow: false);
             _shown = true;
             _viewModel.IsDrawerOpen = true;
+            Page.SetDrawerVisible(true);
         }
     }
 
@@ -162,6 +364,7 @@ public sealed partial class DrawerWindow : Window
             AppWindow.Hide();
             _shown = false;
             _viewModel.IsDrawerOpen = false;
+            Page.SetDrawerVisible(false);
         }
     }
 
@@ -250,6 +453,11 @@ public sealed partial class DrawerWindow : Window
 
     private void OnActivated(object sender, WindowActivatedEventArgs e)
     {
+        if (_backdropConfig is not null)
+        {
+            _backdropConfig.IsInputActive = e.WindowActivationState != WindowActivationState.Deactivated;
+        }
+
         if (e.WindowActivationState != WindowActivationState.Deactivated)
         {
             // The drawer has genuinely taken focus; from now on a loss of activation is a real click-outside.

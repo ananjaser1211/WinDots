@@ -24,11 +24,15 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
+        // Surface, never swallow: the shell log is the only place a packaged crash can be diagnosed from.
         UnhandledException += (_, e) =>
         {
-            // Milestone 1: surface, do not swallow. Structured logging arrives with the settings milestone.
-            System.Diagnostics.Debug.WriteLine($"Unhandled: {e.Exception}");
+            Diagnostics.ShellLog.Write($"UNHANDLED (xaml): {e.Message}\n{e.Exception}");
         };
+        System.AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            Diagnostics.ShellLog.Write($"UNHANDLED (appdomain): {e.ExceptionObject}");
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, e) =>
+            Diagnostics.ShellLog.Write($"UNOBSERVED task: {e.Exception}");
     }
 
     /// <summary>Single provider instance for the process; owned by the app, injected into windows.</summary>

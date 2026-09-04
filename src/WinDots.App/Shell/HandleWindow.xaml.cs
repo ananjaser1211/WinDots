@@ -4,7 +4,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Animation;
 using Windows.Graphics;
 using WinDots.Core.Contracts;
 
@@ -18,9 +17,8 @@ namespace WinDots.App.Shell;
 /// </summary>
 public sealed partial class HandleWindow : Window
 {
-    // Logical geometry from _docs/03-ux-interaction-spec.md.
-    private const double HitWidth = 200;
-    private const double HitHeight = 12;
+    // Logical geometry from _docs/03-ux-interaction-spec.md. The window is sized to the visual pill; there is no
+    // separate hit strip any more (the whole window is the pill, clipped to a stadium region).
     private const double VisualWidth = 160;
     private const double VisualHeight = 6;
     private const double HoverWidth = 200;
@@ -30,9 +28,11 @@ public sealed partial class HandleWindow : Window
     private readonly MonitorInfo _monitor;
     private readonly double _originYLogical;
     private readonly int _offsetPercent;
+    private readonly nint _hwnd;
 
     private Grid _root = null!;
     private bool _capturing;
+    private bool _hovering;
 
     public HandleWindow(MonitorInfo monitor, DrawerHost host, int offsetPercent = 50)
     {
@@ -44,6 +44,7 @@ public sealed partial class HandleWindow : Window
         _originYLogical = (monitor.WorkArea.Y - monitor.Bounds.Y) / monitor.Scale;
 
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        _hwnd = hwnd;
         ConfigurePresenter();
         // Non-activating, topmost tool window; never a taskbar or Alt+Tab entry. Only extended styles are touched:
         // the presenter already removed the frame, and editing WS_* by hand breaks WinUI's swap chain (black window).
@@ -67,15 +68,20 @@ public sealed partial class HandleWindow : Window
 
     public MonitorInfo Monitor => _monitor;
 
-    /// <summary>Places the handle at the top-centre of the monitor's physical work area.</summary>
-    public void Reposition(MonitorInfo monitor)
+    /// <summary>Places the handle at the top-centre of the monitor's physical work area at its current (rest or hover) size.</summary>
+    public void Reposition(MonitorInfo monitor) => SizeToPill(monitor, _hovering ? HoverWidth : VisualWidth, _hovering ? HoverHeight : VisualHeight);
+
+    // Sizes the window to the given logical pill size, re-centres it on the monitor's top edge, and re-applies the
+    // stadium region so the corners stay transparent after the resize.
+    private void SizeToPill(MonitorInfo monitor, double logicalWidth, double logicalHeight)
     {
         var scale = monitor.Scale;
-        var w = (int)Math.Round(HitWidth * scale);
-        var h = (int)Math.Round(HitHeight * scale);
+        var w = (int)Math.Round(logicalWidth * scale);
+        var h = (int)Math.Round(logicalHeight * scale);
         var x = (int)Math.Round(monitor.WorkArea.X + ((monitor.WorkArea.Width - w) * (_offsetPercent / 100.0)));
         var y = (int)Math.Round(monitor.WorkArea.Y);
         AppWindow.MoveAndResize(new RectInt32(x, y, w, h));
+        NativeInterop.SetPillRegion(_hwnd, w, h);
     }
 
     private void ConfigurePresenter()
@@ -153,28 +159,21 @@ public sealed partial class HandleWindow : Window
         _host.OnDragSampleFed();
     }
 
-    private void OnPointerEntered(object sender, PointerRoutedEventArgs e) => AnimateBar(HoverWidth, HoverHeight, brighten: true);
+    private void OnPointerEntered(object sender, PointerRoutedEventArgs e) => SetHover(true);
 
-    private void OnPointerExited(object sender, PointerRoutedEventArgs e) => AnimateBar(VisualWidth, VisualHeight, brighten: false);
+    private void OnPointerExited(object sender, PointerRoutedEventArgs e) => SetHover(false);
 
-    private void AnimateBar(double width, double height, bool brighten)
+    // Hover growth now resizes the window itself (the pill) and re-applies the stadium region; the fill brightens to
+    // signal the affordance. The Border fills the window, so it follows the resize without its own size animation.
+    private void SetHover(bool hovering)
     {
-        Bar.Background = (Brush)Application.Current.Resources[brighten ? "TextFillColorPrimaryBrush" : "TextFillColorSecondaryBrush"];
+        if (_hovering == hovering)
+        {
+            return;
+        }
 
-        var duration = new Duration(TimeSpan.FromMilliseconds(120));
-        var ease = new QuadraticEase { EasingMode = EasingMode.EaseOut };
-        var storyboard = new Storyboard();
-
-        var widthAnim = new DoubleAnimation { To = width, Duration = duration, EnableDependentAnimation = true, EasingFunction = ease };
-        Storyboard.SetTarget(widthAnim, Bar);
-        Storyboard.SetTargetProperty(widthAnim, "Width");
-        storyboard.Children.Add(widthAnim);
-
-        var heightAnim = new DoubleAnimation { To = height, Duration = duration, EnableDependentAnimation = true, EasingFunction = ease };
-        Storyboard.SetTarget(heightAnim, Bar);
-        Storyboard.SetTargetProperty(heightAnim, "Height");
-        storyboard.Children.Add(heightAnim);
-
-        storyboard.Begin();
+        _hovering = hovering;
+        Bar.Background = (Brush)Application.Current.Resources[hovering ? "TextFillColorPrimaryBrush" : "TextFillColorSecondaryBrush"];
+        SizeToPill(_monitor, hovering ? HoverWidth : VisualWidth, hovering ? HoverHeight : VisualHeight);
     }
 }

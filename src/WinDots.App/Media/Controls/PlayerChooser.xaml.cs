@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 
 namespace WinDots.App.Media.Controls;
 
@@ -32,9 +33,23 @@ public sealed partial class PlayerChooser : UserControl
         typeof(PlayerChooser),
         new PropertyMetadata("Automatic", OnActiveLabelChanged));
 
+    public static readonly DependencyProperty AccentBrushProperty = DependencyProperty.Register(
+        nameof(AccentBrush),
+        typeof(Brush),
+        typeof(PlayerChooser),
+        new PropertyMetadata(null));
+
     public PlayerChooser()
     {
         InitializeComponent();
+        Loaded += (_, _) => AccentBrush ??= ResolveBrush("WdAccentBrush");
+    }
+
+    /// <summary>The dynamic accent brush (artwork palette) for the chooser's leading glyph.</summary>
+    public Brush? AccentBrush
+    {
+        get => (Brush?)GetValue(AccentBrushProperty);
+        set => SetValue(AccentBrushProperty, value);
     }
 
     /// <summary>Raised when a player is chosen; null means "Automatic".</summary>
@@ -99,4 +114,14 @@ public sealed partial class PlayerChooser : UserControl
     }
 
     private void OnAutomaticClick(object sender, RoutedEventArgs e) => PlayerSelected?.Invoke(this, null);
+
+    private Brush ResolveBrush(string key)
+    {
+        if (Application.Current.Resources.TryGetValue(key, out object? value) && value is Brush brush)
+        {
+            return brush;
+        }
+
+        return new SolidColorBrush(Microsoft.UI.Colors.Gray);
+    }
 }

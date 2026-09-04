@@ -42,12 +42,12 @@
             Padding="0"
             BorderThickness="0"
             CornerRadius="{StaticResource RadiusMedium}"
-            Background="{ThemeResource WdAccentBrush}"
+            Background="{x:Bind AccentBrush, Mode=OneWay}"
             HorizontalContentAlignment="Center"
             VerticalContentAlignment="Center"
             automation:AutomationProperties.Name="Play"
             Click="OnPlayPauseClick">
-            <FontIcon x:Name="PlayPauseGlyph" Glyph="&#xE768;" FontSize="18" Foreground="{ThemeResource WdOnAccentBrush}" />
+            <FontIcon x:Name="PlayPauseGlyph" Glyph="&#xE768;" FontSize="18" Foreground="{x:Bind OnAccentBrush, Mode=OneWay}" />
         </Button>
 
         <Button

@@ -27,6 +27,16 @@
             <SolidColorBrush x:Key="WdAccentBrush" Color="#1F7A6E" />
             <SolidColorBrush x:Key="WdOnAccentBrush" Color="#FFFFFF" />
         </ResourceDictionary>
+        <!-- High contrast: every Wd* token maps to a system colour so the drawer honours the user's HC scheme. -->
+        <ResourceDictionary x:Key="HighContrast">
+            <SolidColorBrush x:Key="WdSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="WdSurfaceRaisedBrush" Color="{ThemeResource SystemColorButtonFaceColor}" />
+            <SolidColorBrush x:Key="WdOnSurfaceBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="WdOnSurfaceMutedBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="WdOutlineBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="WdAccentBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="WdOnAccentBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
+        </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
 
     <!-- Spacing scale (logical px). -->

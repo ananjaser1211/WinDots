@@ -8,11 +8,59 @@
     IsTabStop="False">
 
     <Grid>
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup x:Name="LayoutStates">
+                <VisualState x:Name="WideLayout" />
+                <VisualState x:Name="StackedLayout">
+                    <VisualState.Setters>
+                        <Setter Target="LyricsColumn.Width" Value="0" />
+                        <Setter Target="ArtworkCell.(Grid.RowSpan)" Value="1" />
+                        <Setter Target="MetadataPanel.(Grid.RowSpan)" Value="1" />
+                        <Setter Target="LyricsCell.(Grid.Row)" Value="1" />
+                        <Setter Target="LyricsCell.(Grid.Column)" Value="0" />
+                        <Setter Target="LyricsCell.(Grid.ColumnSpan)" Value="2" />
+                    </VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
+
+        <!-- Background blobs: three large soft BlobTint shapes drifting behind the content (_docs/04-visual-design.md).
+             Declared first so they render behind everything; IsHitTestVisible off so they never intercept input. -->
+        <Canvas
+            x:Name="BlobCanvas"
+            Grid.Row="0"
+            Grid.RowSpan="3"
+            IsHitTestVisible="False">
+            <Ellipse
+                x:Name="Blob1"
+                Width="260"
+                Height="260"
+                Opacity="0.5"
+                Canvas.Left="-40"
+                Canvas.Top="-70"
+                Fill="{x:Bind ViewModel.BlobTintBrush}" />
+            <Ellipse
+                x:Name="Blob2"
+                Width="200"
+                Height="200"
+                Opacity="0.5"
+                Canvas.Left="520"
+                Canvas.Top="150"
+                Fill="{x:Bind ViewModel.BlobTintBrush}" />
+            <Ellipse
+                x:Name="Blob3"
+                Width="180"
+                Height="180"
+                Opacity="0.5"
+                Canvas.Left="300"
+                Canvas.Top="-50"
+                Fill="{x:Bind ViewModel.BlobTintBrush}" />
+        </Canvas>
 
         <!-- Tab strip: a single "Media" tab (glyph + accent label + short accent underline). -->
         <Grid Grid.Row="0" Padding="24,6,24,4" HorizontalAlignment="Stretch">
@@ -28,18 +76,18 @@
                         Glyph="&#xE8D6;"
                         FontSize="16"
                         HorizontalAlignment="Center"
-                        Foreground="{ThemeResource WdAccentBrush}" />
+                        Foreground="{x:Bind ViewModel.AccentBrush}" />
                     <TextBlock
                         Text="Media"
                         HorizontalAlignment="Center"
                         Style="{StaticResource WdCaptionTextStyle}"
-                        Foreground="{ThemeResource WdAccentBrush}" />
+                        Foreground="{x:Bind ViewModel.AccentBrush}" />
                     <Border
                         Width="28"
                         Height="2"
                         Margin="0,2,0,0"
                         CornerRadius="{StaticResource RadiusPill}"
-                        Background="{ThemeResource WdAccentBrush}" />
+                        Background="{x:Bind ViewModel.AccentBrush}" />
                 </StackPanel>
             </Button>
         </Grid>
@@ -47,32 +95,44 @@
         <!-- Thin divider under the tab strip. -->
         <Border Grid.Row="1" Height="1" Background="{ThemeResource WdOutlineBrush}" />
 
-        <!-- Body: three columns (artwork, metadata + transport, lyrics + chooser). -->
-        <Grid Grid.Row="2" Margin="20,10,20,12" ColumnSpacing="16">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="190" />
-            </Grid.ColumnDefinitions>
+        <!-- Body: three columns (artwork, metadata + transport, lyrics + chooser). At >150% text scale or a narrow
+             width it reflows to two rows (artwork + metadata above, lyrics below) via the LayoutStates group, driven
+             from code-behind (EvaluateLayout). The whole body scrolls so nothing is clipped when text is enlarged. -->
+        <ScrollViewer
+            Grid.Row="2"
+            VerticalScrollBarVisibility="Auto"
+            HorizontalScrollBarVisibility="Disabled"
+            VerticalScrollMode="Auto">
+            <Grid x:Name="BodyGrid" Margin="20,10,20,12" ColumnSpacing="16" RowSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition x:Name="LyricsColumn" Width="190" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
             <!-- Left: blob artwork wrapped by the dotted progress ring. -->
-            <Grid Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Center">
+            <Grid x:Name="ArtworkCell" Grid.Column="0" Grid.Row="0" Grid.RowSpan="2" VerticalAlignment="Center" HorizontalAlignment="Center">
                 <controls:DottedProgressRing
                     x:Name="ProgressRing"
                     Size="176"
                     DotCount="72"
                     DotDiameter="3.5"
                     Progress="{x:Bind ViewModel.Progress, Mode=OneWay}"
-                    AccentBrush="{ThemeResource WdAccentBrush}"
+                    AccentBrush="{x:Bind ViewModel.AccentBrush}"
                     TrackBrush="{ThemeResource WdOutlineBrush}"
                     Visibility="{x:Bind RingVisible(ViewModel.IsEmpty, ViewModel.Duration), Mode=OneWay}" />
                 <controls:BlobArtwork
+                    x:Name="Artwork"
                     Size="150"
                     ImageSource="{x:Bind ViewModel.Artwork, Mode=OneWay}" />
             </Grid>
 
             <!-- Centre: metadata, seek, transport, status, volume placeholder. -->
-            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+            <StackPanel x:Name="MetadataPanel" Grid.Column="1" Grid.Row="0" Grid.RowSpan="2" VerticalAlignment="Center" Spacing="2">
                 <TextBlock
                     Text="{x:Bind ViewModel.Title, Mode=OneWay}"
                     Style="{StaticResource WdTitleTextStyle}"
@@ -106,6 +166,8 @@
                     x:Name="Transport"
                     Margin="0,6,0,0"
                     HorizontalAlignment="Left"
+                    AccentBrush="{x:Bind ViewModel.AccentBrush}"
+                    OnAccentBrush="{x:Bind ViewModel.OnAccentBrush}"
                     Capabilities="{x:Bind ViewModel.Capabilities, Mode=OneWay}"
                     IsPlaying="{x:Bind ViewModel.IsPlaying, Mode=OneWay}"
                     IsShuffleOn="{x:Bind ViewModel.IsShuffleOn, Mode=OneWay}"
@@ -179,7 +241,7 @@
             </StackPanel>
 
             <!-- Right: lyrics slot with the player chooser pinned to its bottom. -->
-            <Grid Grid.Column="2">
+            <Grid x:Name="LyricsCell" Grid.Column="2" Grid.Row="0" Grid.RowSpan="2">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
@@ -197,10 +259,23 @@
                     x:Name="Chooser"
                     Grid.Row="1"
                     Margin="0,10,0,0"
+                    AccentBrush="{x:Bind ViewModel.AccentBrush}"
                     Items="{x:Bind ViewModel.ChooserItems, Mode=OneWay}"
                     ActiveLabel="{x:Bind ViewModel.ActiveChooserLabel, Mode=OneWay}"
                     PlayerSelected="OnPlayerSelected" />
             </Grid>
-        </Grid>
+            </Grid>
+        </ScrollViewer>
+
+        <!-- Hidden live region: announces play/pause transitions to Narrator without occupying layout. Its text is set
+             from code-behind on IsPlaying changes; Opacity 0 keeps it invisible while still exposed to UI Automation. -->
+        <TextBlock
+            x:Name="PlayStateAnnouncer"
+            Grid.Row="0"
+            Opacity="0"
+            IsHitTestVisible="False"
+            Text=""
+            AutomationProperties.LiveSetting="Polite"
+            AutomationProperties.Name="Playback state" />
     </Grid>
 </UserControl>

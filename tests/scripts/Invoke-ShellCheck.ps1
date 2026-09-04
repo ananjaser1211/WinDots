@@ -37,9 +37,11 @@ function Send-Cmd([int]$cmd, [int]$arg = 0) {
   if ($h -eq [IntPtr]::Zero) { throw 'ShellMessageWindow not found; is WinDots running?' }
   [void][WD]::PostMessageW($h, $WM_APP_COMMAND, [IntPtr]$cmd, [IntPtr]$arg)
 }
-function Wins { $p = Get-Process WinDots -ErrorAction SilentlyContinue; if ($p) { [WD]::List([uint32]$p.Id) } }
+function Wins { $p = @(Get-Process WinDots -ErrorAction SilentlyContinue); if ($p.Count -gt 0) { [WD]::List([uint32]$p[0].Id) } }
 function Drawer { Wins | Where-Object { $_ -match ' \d+x([2-9]\d\d)$' } }
-function Handles { Wins | Where-Object { $_ -match ' \d+x1\d$' } }
+# The pill handle window is now sized to the visual (6 logical px tall at rest, 8 on hover), so its physical height is
+# a single/low-double digit across DPI (6 at 100 %, ~9 at 150 %); match 4-15 px. The drawer is >=200 px (3 digits).
+function Handles { Wins | Where-Object { $_ -match ' \d+x([4-9]|1[0-5])$' } }
 function LogTail([int]$n = 12) { if (Test-Path $log) { Get-Content $log -Tail $n | ForEach-Object { "   | $_" } } }
 function Check($name, $cond) { if ($cond) { "PASS $name" } else { "FAIL $name" } }
 

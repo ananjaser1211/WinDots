@@ -50,6 +50,12 @@ public sealed partial class DottedProgressRing : UserControl
         typeof(DottedProgressRing),
         new PropertyMetadata(null, OnFillChanged));
 
+    public static readonly DependencyProperty HighContrastProperty = DependencyProperty.Register(
+        nameof(HighContrast),
+        typeof(bool),
+        typeof(DottedProgressRing),
+        new PropertyMetadata(false, OnFillChanged));
+
     private Ellipse[] _dots = Array.Empty<Ellipse>();
 
     public DottedProgressRing()
@@ -100,6 +106,13 @@ public sealed partial class DottedProgressRing : UserControl
         set => SetValue(TrackBrushProperty, value);
     }
 
+    /// <summary>When true, every dot renders in WindowText for high contrast.</summary>
+    public bool HighContrast
+    {
+        get => (bool)GetValue(HighContrastProperty);
+        set => SetValue(HighContrastProperty, value);
+    }
+
     private static void OnLayoutChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         ((DottedProgressRing)d).Rebuild();
@@ -147,6 +160,17 @@ public sealed partial class DottedProgressRing : UserControl
     {
         if (_dots.Length == 0)
         {
+            return;
+        }
+
+        if (HighContrast)
+        {
+            Brush hc = (Brush)Resources["WdHighContrastDotBrush"];
+            foreach (Ellipse dot in _dots)
+            {
+                dot.Fill = hc;
+            }
+
             return;
         }
 

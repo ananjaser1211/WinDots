@@ -4,9 +4,9 @@
 
 | Element | Logical px at 100 % | Notes |
 |---|---|---|
-| Handle visual | 160 x 6 | Rounded 3 px, centred on the monitor's top edge |
-| Handle hit target | 200 x 12 | Includes 3 px above the visual so edge-slams register |
-| Handle hover visual | 200 x 8 | 120 ms ease-out |
+| Handle window (rest) | 160 x 6 | The window **is** the pill: sized to the visual and clipped to a stadium region (`SetWindowRgn` with a round-rect radius = height) so the corners are transparent and click-through. Centred on the monitor's top edge. |
+| Handle window (hover) | 200 x 8 | The window resizes and the region is re-applied; the fill brightens. No separate opaque hit strip. |
+| Handle hit target | = window | The whole pill is the hit target; there is no extra transparent margin (a 3 px margin was omitted because it cannot add hittable area inside `SetWindowRgn` and an opaque one would break the pill silhouette). |
 | Drawer | 720 x 300 | Clamped to 90 % of work-area width, 60 % of height |
 | Drawer top offset | 0 | Flush with the top edge; if the taskbar is on top, sits below it |
 

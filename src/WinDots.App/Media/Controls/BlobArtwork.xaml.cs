@@ -1,4 +1,5 @@
 using System;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -35,7 +36,31 @@ public sealed partial class BlobArtwork : UserControl
         typeof(BlobArtwork),
         new PropertyMetadata(1.0, OnGeometryChanged));
 
+    public static readonly DependencyProperty PhaseProperty = DependencyProperty.Register(
+        nameof(Phase),
+        typeof(double),
+        typeof(BlobArtwork),
+        new PropertyMetadata(0.0, OnGeometryChanged));
+
+    public static readonly DependencyProperty HighContrastProperty = DependencyProperty.Register(
+        nameof(HighContrast),
+        typeof(bool),
+        typeof(BlobArtwork),
+        new PropertyMetadata(false, OnHighContrastChanged));
+
+    // Idle drift: the phase advances one full cycle (2 pi) per 20 s, regenerating the geometry at ~10 Hz.
+    private static readonly TimeSpan DriftInterval = TimeSpan.FromMilliseconds(100);
+    private const double DriftPeriodSeconds = 20.0;
+
     private Path? _front;
+    private DispatcherQueueTimer? _driftTimer;
+    private bool _idleMotion;
+
+    // Reduced motion turns the artwork cross-fade into an instant swap (_docs/03 Accessibility). Active is the
+    // drawer-visibility gate: idle drift must not run while the drawer is hidden in the tray (the XAML tree stays
+    // loaded across AppWindow.Hide, so lifecycle events alone would leave the 10 Hz timer allocating forever).
+    private bool _reduceMotion;
+    private bool _active;
 
     public BlobArtwork()
     {
@@ -44,7 +69,26 @@ public sealed partial class BlobArtwork : UserControl
         {
             RebuildGeometry();
             ApplyImage(ImageSource, animate: false);
+            if (_idleMotion)
+            {
+                StartDrift();
+            }
         };
+        Unloaded += (_, _) => StopDrift();
+    }
+
+    /// <summary>Phase offset (radians) applied to the blob outline for idle drift.</summary>
+    public double Phase
+    {
+        get => (double)GetValue(PhaseProperty);
+        set => SetValue(PhaseProperty, value);
+    }
+
+    /// <summary>When true, the blob is drawn with a 2 px WindowText outline for high contrast.</summary>
+    public bool HighContrast
+    {
+        get => (bool)GetValue(HighContrastProperty);
+        set => SetValue(HighContrastProperty, value);
     }
 
     /// <summary>The artwork to display, or null to show the placeholder.</summary>
@@ -71,12 +115,98 @@ public sealed partial class BlobArtwork : UserControl
     private static void OnImageSourceChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         var control = (BlobArtwork)d;
-        control.ApplyImage(e.NewValue as ImageSource, animate: control.IsLoaded);
+        control.ApplyImage(e.NewValue as ImageSource, animate: control.IsLoaded && !control._reduceMotion);
     }
 
     private static void OnGeometryChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         ((BlobArtwork)d).RebuildGeometry();
+    }
+
+    private static void OnHighContrastChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        ((BlobArtwork)d).OutlineShape.Visibility = (bool)e.NewValue ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>Starts or stops the idle phase drift (disabled under reduced motion or high contrast).</summary>
+    public void SetIdleMotion(bool enabled)
+    {
+        _idleMotion = enabled;
+        if (enabled)
+        {
+            StartDrift();
+        }
+        else
+        {
+            StopDrift();
+            Phase = 0.0;
+        }
+    }
+
+    /// <summary>When false, the artwork cross-fade is an instant swap (reduced motion / high contrast).</summary>
+    public void SetReduceMotion(bool enabled) => _reduceMotion = enabled;
+
+    /// <summary>
+    /// Pauses or resumes idle drift with the drawer's visibility. The drawer is hidden via <c>AppWindow.Hide</c>,
+    /// which does not unload the XAML tree, so drift must be stopped here or the 10 Hz geometry rebuild runs forever.
+    /// </summary>
+    public void SetActive(bool active)
+    {
+        if (_active == active)
+        {
+            return;
+        }
+
+        _active = active;
+        if (active && _idleMotion)
+        {
+            StartDrift();
+        }
+        else
+        {
+            StopDrift();
+        }
+    }
+
+    private void StartDrift()
+    {
+        if (!IsLoaded || !_active || _driftTimer is not null)
+        {
+            return;
+        }
+
+        DispatcherQueue queue = DispatcherQueue.GetForCurrentThread();
+        if (queue is null)
+        {
+            return;
+        }
+
+        _driftTimer = queue.CreateTimer();
+        _driftTimer.Interval = DriftInterval;
+        _driftTimer.IsRepeating = true;
+        _driftTimer.Tick += OnDriftTick;
+        _driftTimer.Start();
+    }
+
+    private void StopDrift()
+    {
+        if (_driftTimer is not null)
+        {
+            _driftTimer.Stop();
+            _driftTimer.Tick -= OnDriftTick;
+            _driftTimer = null;
+        }
+    }
+
+    private void OnDriftTick(DispatcherQueueTimer sender, object args)
+    {
+        double next = Phase + (2.0 * Math.PI * DriftInterval.TotalSeconds / DriftPeriodSeconds);
+        if (next >= 2.0 * Math.PI)
+        {
+            next -= 2.0 * Math.PI;
+        }
+
+        Phase = next;
     }
 
     private void RebuildGeometry()
@@ -93,12 +223,13 @@ public sealed partial class BlobArtwork : UserControl
         LayoutRoot.Height = size;
 
         double amplitude = Math.Clamp(0.06 * Deform, 0.0, 0.99);
-        BlobPath blob = BlobGeometry.Create(size, 8, amplitude);
+        BlobPath blob = BlobGeometry.Create(size, 8, amplitude, Phase);
         Geometry geometry = ToGeometry(blob);
 
         PlaceholderShape.Data = geometry;
         PathA.Data = ToGeometry(blob);
         PathB.Data = ToGeometry(blob);
+        OutlineShape.Data = ToGeometry(blob);
 
         double glyphSize = Math.Round(size * 0.22);
         PlaceholderImageGlyph.FontSize = glyphSize;

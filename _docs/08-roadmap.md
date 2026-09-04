@@ -30,7 +30,7 @@ Branch naming: `feat/<area>`, `fix/<area>`, `docs/<area>`. Every milestone ends 
 4. Done: Win+Shift+M hotkey, Escape, click-outside, tray icon with menu, diagnostics command hook (`ShellMessageWindow`).
 5. Done: `MonitorService` with topology events (commit `bc88694`); identical-layout events are ignored so handles are never duplicated.
 - **Exit met**: `tests/scripts/Invoke-ShellCheck.ps1` passes on a dual-monitor setup at 100 % and 125 % (150 % not available on this machine); handles never activate; drawer takes foreground after open; cross-monitor move and settle interruption work.
-- Open polish for M4: the handle is an opaque 200x12 strip (WinUI windows cannot be transparent yet); the drawer has no acrylic; hover growth is unverified by script.
+- Open polish for M4 (now resolved in M4): the handle was an opaque 200x12 strip; it is now the pill itself, clipped to a stadium region with transparent corners. The drawer gained acrylic. Hover growth remains unverified by script.
 
 ### M3 Functional media - `feat/foundation` (code done 2026-09-04; visual QA pending)
 1. Done: `SessionCoordinator` + `MediaOptions` + 30 tests; `SeekReconciliation`; `TimelineInterpolator` (commit `a83b7b3`).
@@ -40,11 +40,13 @@ Branch naming: `feat/<area>`, `fix/<area>`, `docs/<area>`. Every milestone ends 
 - **Exit met (2026-09-04)**: `tests/scripts/Capture-Drawer.ps1` capture reviewed against `MediaPlayer.png`: blob artwork with dotted ring left, title/artist/album, seek with times, shuffle/previous/play pill/next/repeat, volume row, lyrics slot with "No lyrics found", player chooser pill. Controls were resized once (commit "fit media page controls") so all five transport buttons and the volume row fit in 720x300. Coordinator picks the playing test player over a paused Chrome; hook play/pause round-trips. Remaining M3 checklist items (livestream, advert metadata, two players paused+playing) are covered by the test player and Chrome sessions seen during the capture but not yet scripted.
 
 ### M4 Windows polish - `feat/foundation`
-1. Tokens done (M3); acrylic + opaque fallback and DWM corners: to do (corners done in M2).
-2. Done: `PaletteService` + `ColorMath` with 24 tests (commit pending push in this stage). Colour transitions and wiring into the view-model: to do.
-3. Background blobs, ring/blob idle motion, reduced motion, high contrast, Narrator names: to do.
-4. Multi-monitor handles done (M2); display-change recovery verified only by identical-layout guard: needs a real topology test.
-- **Exit**: M4 checklist; 60 fps drawer on the dev machine.
+1. Done: tokens (M3); acrylic (`DesktopAcrylicController`) with opaque `Surface` fallback (advanced-effects off / battery saver / Remote Desktop / high contrast / failure) and DWM round corners.
+2. Done: `PaletteService` + `ColorMath` with 24 tests; artwork/fixed/fallback palettes wired into `MediaViewModel` (accent, on-accent, accent-container, blob-tint brushes) with 400 ms colour transitions.
+3. Done: background blobs with phase-offset idle drift, artwork blob phase drift, reduced-motion and high-contrast suppression, high-contrast ThemeDictionary + ring/blob strokes, Narrator names on every interactive control, a hidden Polite live region announcing play/pause, and a text-scale/width two-row reflow.
+4. Done: the collapsed handle is now the pill itself — the window is sized to the visual (160 x 6, 200 x 8 hover) and clipped to a stadium region via `SetWindowRgn`, corners transparent; hover grows the window and re-applies the region.
+5. Multi-monitor handles done (M2); display-change recovery verified only by identical-layout guard: needs a real topology test.
+- Deferred: 40 px blob blur (flat soft ellipses for now); a real topology (display-change) test; 60 fps drawer measurement on the dev machine.
+- **Exit**: M4 checklist met except the deferred items above; `Invoke-ShellCheck.ps1` handle detection updated to the pill size.
 
 ### M5 Volume and settings - `feat/foundation`
 1. Done: `CoreAudioSessionProvider` (CsWin32 COM on its own dispatcher, default-device re-attach) + `AudioMatchPolicy` with tests; platform tests against the test player, which now opens a real render session.
