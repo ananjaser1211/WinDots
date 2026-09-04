@@ -44,6 +44,17 @@ EDataFlow
 ERole
 CLSCTX
 STGM
+
+// Audio/WasapiLoopbackCapture.cs - WASAPI loopback capture (E5 visualiser)
+IAudioClient
+IAudioClient3
+IAudioCaptureClient
+WAVEFORMATEX
+WAVEFORMATEXTENSIBLE
+AUDCLNT_SHAREMODE
+AUDCLNT_STREAMFLAGS_LOOPBACK
+_AUDCLNT_BUFFERFLAGS
+
 GetPackageFamilyName
 OpenProcess
 CloseHandle

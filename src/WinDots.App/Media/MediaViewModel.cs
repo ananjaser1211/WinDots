@@ -19,7 +19,10 @@ using WinDots.Core.Design;
 using WinDots.Core.Lyrics;
 using WinDots.Core.Media;
 using WinDots.Core.Settings;
+using WinDots.Core.Visualiser;
 using CoreLyricsProvider = WinDots.Core.Settings.LyricsProvider;
+using CoreVisualiserStyle = WinDots.Core.Visualiser.VisualiserStyle;
+using CoreVisualiserPlacement = WinDots.Core.Visualiser.VisualiserPlacement;
 
 namespace WinDots.App.Media;
 
@@ -140,6 +143,20 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
     private bool _lyricsSynced;
     private string _lyricsAttribution = string.Empty;
     private LyricsState _lyricsState = LyricsState.Off;
+
+    // --- Visualiser (E5) ---
+    // The host owns the loopback capture; the view-model owns the DSP state (touched only on the UI thread), the
+    // gating decision, and the bindable per-frame outputs. Frames are marshalled here by the host and pushed to the
+    // UI at ~60 Hz. _visualiserGatesOk folds in reduced-motion / battery-saver / remote-session (host-resolved).
+    private VisualiserOptions _visualiserOptions = new();
+    private AudioSpectrum? _spectrum;
+    private WaveformBuffer? _waveformBuffer;
+    private bool _visualiserGatesOk;
+    private long _lastVisualiserPushTicks;
+    private IReadOnlyList<double> _visualiserBands = Array.Empty<double>();
+    private IReadOnlyList<double> _visualiserWaveform = Array.Empty<double>();
+    private double _visualiserEnergy;
+    private bool _visualiserActive;
 
     public MediaViewModel(
         ISessionCoordinator coordinator,
@@ -415,7 +432,17 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
 
     public Capabilities Capabilities { get => _capabilities; private set => Set(ref _capabilities, value); }
 
-    public bool IsPlaying { get => _isPlaying; private set => Set(ref _isPlaying, value); }
+    public bool IsPlaying
+    {
+        get => _isPlaying;
+        private set
+        {
+            if (Set(ref _isPlaying, value))
+            {
+                UpdateVisualiserRuntime();
+            }
+        }
+    }
 
     public bool? IsShuffleOn { get => _isShuffleOn; private set => Set(ref _isShuffleOn, value); }
 
@@ -471,6 +498,7 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
             }
 
             UpdateTimelineTimer();
+            UpdateVisualiserRuntime();
         }
     }
 
@@ -667,6 +695,144 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
         }
 
         LyricsCurrentIndex = LyricsSync.CurrentIndex(_lyricsModelLines, Position, TimeSpan.FromMilliseconds(_lyricsOffsetMs));
+    }
+
+    // --- Visualiser (E5) ---
+
+    /// <summary>The latest band magnitudes (0..1); a fresh list per frame so the bound control updates.</summary>
+    public IReadOnlyList<double> VisualiserBands { get => _visualiserBands; private set => Set(ref _visualiserBands, value); }
+
+    /// <summary>The latest waveform amplitude points (0..1 half-height envelope), for the waveform style.</summary>
+    public IReadOnlyList<double> VisualiserWaveform { get => _visualiserWaveform; private set => Set(ref _visualiserWaveform, value); }
+
+    /// <summary>Overall energy (0..1), the mean band magnitude; drives halo / blob-pulse intensity.</summary>
+    public double VisualiserEnergy { get => _visualiserEnergy; private set => Set(ref _visualiserEnergy, value); }
+
+    /// <summary>True while the visualiser should render (enabled, gated on, drawer open, and playing).</summary>
+    public bool VisualiserActive { get => _visualiserActive; private set => Set(ref _visualiserActive, value); }
+
+    /// <summary>The configured render style.</summary>
+    public CoreVisualiserStyle VisualiserStyle => _visualiserOptions.Style;
+
+    /// <summary>The configured placement relative to the artwork.</summary>
+    public CoreVisualiserPlacement VisualiserPlacement => _visualiserOptions.Placement;
+
+    /// <summary>The configured bar count, clamped to the supported range.</summary>
+    public int VisualiserBarCount => _visualiserOptions.ClampedBars;
+
+    /// <summary>Whether the bars are mirrored about the centre.</summary>
+    public bool VisualiserMirrored => _visualiserOptions.Mirrored;
+
+    /// <summary>True when loopback capture should be running; the host starts/stops the capture on this signal.</summary>
+    public bool VisualiserCaptureWanted { get; private set; }
+
+    /// <summary>Raised (on the UI thread) when <see cref="VisualiserCaptureWanted"/> flips, so the host reacts.</summary>
+    public event EventHandler? VisualiserCaptureWantedChanged;
+
+    /// <summary>
+    /// Applies a live change to the <c>visualiser</c> settings. <paramref name="gatesOk"/> folds in the host-resolved
+    /// reduced-motion / battery-saver / remote-session gates. Recreates the DSP state when the shape changes.
+    /// </summary>
+    public void UpdateVisualiserOptions(VisualiserOptions options, bool gatesOk)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        bool shapeChanged = _spectrum is null || _visualiserOptions.ClampedBars != options.ClampedBars ||
+            Math.Abs(_visualiserOptions.Smoothing - options.Smoothing) > 0.0001;
+        _visualiserOptions = options;
+        _visualiserGatesOk = gatesOk;
+
+        if (shapeChanged)
+        {
+            _spectrum = new AudioSpectrum(AudioSpectrumConfig.FromOptions(options));
+            _waveformBuffer = new WaveformBuffer(128);
+        }
+
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(VisualiserStyle)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(VisualiserPlacement)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(VisualiserBarCount)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(VisualiserMirrored)));
+        UpdateVisualiserRuntime();
+    }
+
+    /// <summary>
+    /// Processes one captured frame on the UI thread (the host marshals it here): down-mix, run the spectrum and
+    /// waveform DSP, then push the bindable outputs at ~60 Hz. Audio stays in memory; nothing is stored.
+    /// </summary>
+    public void ProcessAudioFrame(AudioFrame frame)
+    {
+        if (_disposed || frame is null || _spectrum is null || _waveformBuffer is null || !VisualiserCaptureWanted)
+        {
+            return;
+        }
+
+        float[] mono = AudioMixer.DownmixToMono(frame.Samples, frame.Channels);
+        _spectrum.Process(mono, frame.SampleRate);
+        _waveformBuffer.Process(mono);
+
+        long now = Environment.TickCount64;
+        if (now - _lastVisualiserPushTicks < 15)
+        {
+            return;
+        }
+
+        _lastVisualiserPushTicks = now;
+        PushVisualiserValues();
+    }
+
+    private void PushVisualiserValues()
+    {
+        if (_spectrum is null || _waveformBuffer is null)
+        {
+            return;
+        }
+
+        IReadOnlyList<float> bands = _spectrum.Bands;
+        var outBands = new double[bands.Count];
+        double sum = 0;
+        for (int i = 0; i < bands.Count; i++)
+        {
+            outBands[i] = bands[i];
+            sum += bands[i];
+        }
+
+        IReadOnlyList<float> min = _waveformBuffer.Min;
+        IReadOnlyList<float> max = _waveformBuffer.Max;
+        var outWave = new double[max.Count];
+        for (int i = 0; i < max.Count; i++)
+        {
+            outWave[i] = Math.Max(Math.Abs(min[i]), Math.Abs(max[i]));
+        }
+
+        VisualiserBands = outBands;
+        VisualiserWaveform = outWave;
+        VisualiserEnergy = bands.Count > 0 ? Math.Clamp(sum / bands.Count, 0, 1) : 0;
+    }
+
+    private void ClearVisualiser()
+    {
+        _spectrum?.Reset();
+        _lastVisualiserPushTicks = 0;
+        VisualiserBands = Array.Empty<double>();
+        VisualiserWaveform = Array.Empty<double>();
+        VisualiserEnergy = 0;
+    }
+
+    private void UpdateVisualiserRuntime()
+    {
+        bool wanted = _visualiserOptions.Enabled && _visualiserGatesOk && _isDrawerOpen && _isPlaying;
+        VisualiserActive = wanted;
+        if (wanted == VisualiserCaptureWanted)
+        {
+            return;
+        }
+
+        VisualiserCaptureWanted = wanted;
+        if (!wanted)
+        {
+            ClearVisualiser();
+        }
+
+        VisualiserCaptureWantedChanged?.Invoke(this, EventArgs.Empty);
     }
 
     // --- Commands ---

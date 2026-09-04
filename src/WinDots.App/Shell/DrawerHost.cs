@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Threading;
 using Microsoft.UI.Dispatching;
 using Windows.Storage;
+using Windows.System.Power;
 using Windows.UI.ViewManagement;
 using WinDots.App.Diagnostics;
 using WinDots.App.LastFm;
@@ -15,6 +16,8 @@ using WinDots.Core.Drawer;
 using WinDots.Core.Lyrics;
 using WinDots.Core.Media;
 using WinDots.Core.Settings;
+using WinDots.Core.Visualiser;
+using WinDots.Windows.Audio;
 using WinDots.Windows.Security;
 
 namespace WinDots.App.Shell;
@@ -72,6 +75,11 @@ public sealed class DrawerHost
     private bool _drawerShown;
     private nint _previousForeground;
     private readonly IAudioSessionProvider? _audio;
+
+    // Visualiser (E5): the loopback capture is owned here and started only while the drawer is open, a track is
+    // playing, the visualiser is enabled, and the gates (reduced motion / battery saver / remote session) pass.
+    // Frames arrive on the capture thread and are marshalled to the UI thread before the view-model touches DSP state.
+    private readonly IAudioLoopbackCapture _capture;
     private readonly AccessibilitySettings _accessibility = new();
     private bool _highContrast;
     private long _lastFrameTicks;
@@ -146,6 +154,12 @@ public sealed class DrawerHost
         _viewModel.LyricsEnableRequested += OnLyricsEnableRequested;
         _viewModel.UpdateLyricsSettings(current.Lyrics.Provider, current.Lyrics.OffsetMs);
 
+        // Visualiser: capture is created once and driven by the view-model's capture-wanted signal.
+        _capture = new WasapiLoopbackCapture();
+        _capture.FrameAvailable += OnAudioFrame;
+        _viewModel.VisualiserCaptureWantedChanged += OnVisualiserCaptureWantedChanged;
+        RefreshVisualiser(current);
+
         _activeMonitor = PickDefaultMonitor();
         _drawer = new DrawerWindow(this, _viewModel);
         _drawer.SetAlwaysOnTop(current.Drawer.AlwaysOnTop);
@@ -181,6 +195,49 @@ public sealed class DrawerHost
         bool reduced = ResolveReducedMotion(appearance.ReduceMotion);
         _drawer.ConfigureVisuals(appearance.BackgroundBlobs, reduced, _highContrast);
         _viewModel.SetAccessibility(reduced, _highContrast);
+    }
+
+    /// <summary>Pushes the current <c>visualiser</c> settings and the resolved gates to the view-model.</summary>
+    private void RefreshVisualiser(global::WinDots.Core.Settings.Settings s) =>
+        _viewModel.UpdateVisualiserOptions(s.ToVisualiserOptions(), ResolveVisualiserGates());
+
+    /// <summary>The visualiser runs only when reduced motion is off, battery saver is off, and this is not a remote session.</summary>
+    private bool ResolveVisualiserGates()
+    {
+        bool reduced = ResolveReducedMotion(_appearanceSettings.ReduceMotion);
+        bool battery;
+        try
+        {
+            battery = PowerManager.EnergySaverStatus == EnergySaverStatus.On;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException)
+        {
+            battery = false;
+        }
+
+        bool remote = NativeInterop.IsRemoteSession();
+        // High contrast turns the visualiser off too, matching the background blobs and the _docs/04 accessibility rule.
+        return !reduced && !battery && !remote && !ResolveHighContrast();
+    }
+
+    private void OnAudioFrame(object? sender, AudioFrame frame) =>
+        _dispatcher.TryEnqueue(() => _viewModel.ProcessAudioFrame(frame));
+
+    private void OnVisualiserCaptureWantedChanged(object? sender, EventArgs e)
+    {
+        if (_viewModel.VisualiserCaptureWanted)
+        {
+            if (!_capture.IsCapturing)
+            {
+                _capture.Start(CancellationToken.None);
+                ShellLog.Write("visualiser: capture started");
+            }
+        }
+        else if (_capture.IsCapturing)
+        {
+            _capture.Stop();
+            ShellLog.Write("visualiser: capture stopped");
+        }
     }
 
     private bool ResolveHighContrast()
@@ -336,7 +393,11 @@ public sealed class DrawerHost
         _controller.Transition -= OnTransition;
         _viewModel.CommandInvoked -= OnCommandInvoked;
         _viewModel.LyricsEnableRequested -= OnLyricsEnableRequested;
+        _viewModel.VisualiserCaptureWantedChanged -= OnVisualiserCaptureWantedChanged;
         _coordinator.CandidatesChanged -= OnCandidatesChangedForRegistry;
+        _capture.FrameAvailable -= OnAudioFrame;
+        _capture.Stop();
+        _capture.Dispose();
         _sources.Save();
         _lastFm.Dispose();
         _viewModel.Dispose();
@@ -439,6 +500,12 @@ public sealed class DrawerHost
         ShellLog.Write(
             $"lastfm: enabled={_lastFm.Enabled} signedIn={_lastFm.IsSignedIn} hasKey={_lastFm.HasApiKey} " +
             $"buildKey={LastFmKeys.HasBuildKey}");
+
+        VisualiserSettings vis = _settings.Current.Visualiser;
+        ShellLog.Write(
+            $"visualiser: enabled={vis.Enabled} style={vis.Style} placement={vis.Placement} bars={vis.Bars} " +
+            $"gatesOk={ResolveVisualiserGates()} active={_viewModel.VisualiserActive} " +
+            $"captureWanted={_viewModel.VisualiserCaptureWanted} capturing={_capture.IsCapturing}");
     }
 
     private MonitorInfo MonitorAtCursor()
@@ -632,6 +699,9 @@ public sealed class DrawerHost
             ApplyAppearanceEffects(_appearanceSettings);
         }
 
+        // Re-resolve the visualiser gates (battery saver / remote session can change between opens).
+        RefreshVisualiser(_settings.Current);
+
         _drawer.MoveToMonitor(_activeMonitor);
         _drawer.ShowAtProgress(0);
         _drawerShown = true;
@@ -800,6 +870,7 @@ public sealed class DrawerHost
         ApplyAppearanceEffects(s.Appearance);
         _coordinator.UpdateOptions(BuildMediaOptions(s));
         _viewModel.UpdateLyricsSettings(s.Lyrics.Provider, s.Lyrics.OffsetMs);
+        RefreshVisualiser(s);
         _lastFm.ApplySettings(s.LastFm);
         _drawer.SetAlwaysOnTop(s.Drawer.AlwaysOnTop);
         ResetAutoHide();

@@ -11,6 +11,7 @@ using WinDots.App.LastFm;
 using WinDots.App.Media.Controls;
 using WinDots.App.Shell;
 using WinDots.Core.Scrobbling;
+using WinDots.Core.Visualiser;
 
 namespace WinDots.App.Media;
 
@@ -266,9 +267,48 @@ public sealed partial class MediaPage : UserControl
     // when focus is elsewhere. Runs on the view-model's UI thread (all its notifications are marshalled there).
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(MediaViewModel.IsPlaying) && _viewModel is not null)
+        if (_viewModel is null)
         {
-            PlayStateAnnouncer.Text = _viewModel.IsPlaying ? "Playing" : "Paused";
+            return;
+        }
+
+        switch (e.PropertyName)
+        {
+            case nameof(MediaViewModel.IsPlaying):
+                PlayStateAnnouncer.Text = _viewModel.IsPlaying ? "Playing" : "Paused";
+                break;
+
+            case nameof(MediaViewModel.VisualiserEnergy):
+            case nameof(MediaViewModel.VisualiserActive):
+            case nameof(MediaViewModel.VisualiserStyle):
+                ApplyBlobPulse();
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    // The blobPulse style scales the album blob itself (the visualiser control draws nothing for it). Driven by the
+    // view-model's energy; reset to identity when the style is inactive. Composition scale so no layout runs.
+    private void ApplyBlobPulse()
+    {
+        bool pulse = _viewModel is not null && _viewModel.VisualiserActive &&
+                     _viewModel.VisualiserStyle == VisualiserStyle.BlobPulse;
+
+        Visual visual = ElementCompositionPreview.GetElementVisual(Artwork);
+        double w = Artwork.ActualWidth > 0 ? Artwork.ActualWidth : Artwork.Width;
+        double h = Artwork.ActualHeight > 0 ? Artwork.ActualHeight : Artwork.Height;
+        visual.CenterPoint = new Vector3((float)(w / 2), (float)(h / 2), 0f);
+
+        if (pulse)
+        {
+            float s = 1f + (float)(Math.Clamp(_viewModel!.VisualiserEnergy, 0, 1) * 0.10);
+            visual.Scale = new Vector3(s, s, 1f);
+        }
+        else
+        {
+            visual.Scale = Vector3.One;
         }
     }
 
@@ -280,9 +320,34 @@ public sealed partial class MediaPage : UserControl
     private Visibility Shown(bool isEmpty) => isEmpty ? Visibility.Collapsed : Visibility.Visible;
 
     // The dotted ring shows in the empty state as an all-track ring (DottedRingLayout.ElapsedDots(null,..) is 0)
-    // and whenever a duration is known. It is hidden only for an active unknown-duration livestream (A3).
-    private Visibility RingVisible(bool isEmpty, TimeSpan? duration) =>
-        isEmpty || duration is not null ? Visibility.Visible : Visibility.Collapsed;
+    // and whenever a duration is known. It is hidden for an active unknown-duration livestream (A3), and while the
+    // ring-style visualiser occupies the artwork cell (the radial bars replace the dotted ring, per E5) — but not when
+    // the ring visualiser has been placed in the bottom strip, where the dotted ring stays visible around the blob.
+    private Visibility RingVisible(
+        bool isEmpty,
+        TimeSpan? duration,
+        bool visualiserActive,
+        VisualiserStyle style,
+        VisualiserPlacement placement)
+    {
+        if (visualiserActive && style == VisualiserStyle.Ring && VisualiserLayout.ShowsInArtArea(style, placement))
+        {
+            return Visibility.Collapsed;
+        }
+
+        return isEmpty || duration is not null ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    // Placement decides the region: art placements keep art-area styles (ring / halo / particles) around the blob;
+    // Bottom moves them to the strip. Strip styles (bars / waveform) always sit in the bottom band. See VisualiserLayout.
+    private Visibility ArtVisualiserVisible(bool active, VisualiserStyle style, VisualiserPlacement placement) =>
+        active && VisualiserLayout.ShowsInArtArea(style, placement) ? Visibility.Visible : Visibility.Collapsed;
+
+    private Visibility StripVisualiserVisible(bool active, VisualiserStyle style, VisualiserPlacement placement) =>
+        active && VisualiserLayout.ShowsInStrip(style, placement) ? Visibility.Visible : Visibility.Collapsed;
+
+    // Artwork-cell depth for the art-area visualiser, driven by placement (over / between / behind the blob).
+    private int ArtVisualiserZ(VisualiserPlacement placement) => VisualiserLayout.ArtZIndex(placement);
 
     private Visibility HasText(string? text) =>
         string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;

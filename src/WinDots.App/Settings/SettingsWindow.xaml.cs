@@ -15,6 +15,7 @@ using WinDots.Core.Contracts;
 using WinDots.Core.Media;
 using WinDots.Core.Scrobbling;
 using WinDots.Core.Settings;
+using WinDots.Core.Visualiser;
 using CoreSettings = WinDots.Core.Settings.Settings;
 
 namespace WinDots.App.Settings;
@@ -92,7 +93,7 @@ public sealed partial class SettingsWindow : Window
 
     private static readonly string[] SectionTags =
     {
-        "Drawer", "Media", "Sources", "Lyrics", "LastFm", "Appearance", "Monitors", "Privacy", "Diagnostics", "Startup",
+        "Drawer", "Media", "Sources", "Lyrics", "LastFm", "Appearance", "Visualiser", "Monitors", "Privacy", "Diagnostics", "Startup",
     };
 
     private void OnSectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
@@ -108,6 +109,7 @@ public sealed partial class SettingsWindow : Window
         LyricsSection.Visibility = Vis(tag == "Lyrics");
         LastFmSection.Visibility = Vis(tag == "LastFm");
         AppearanceSection.Visibility = Vis(tag == "Appearance");
+        VisualiserSection.Visibility = Vis(tag == "Visualiser");
         MonitorsSection.Visibility = Vis(tag == "Monitors");
         PrivacySection.Visibility = Vis(tag == "Privacy");
         DiagnosticsSection.Visibility = Vis(tag == "Diagnostics");
@@ -178,6 +180,13 @@ public sealed partial class SettingsWindow : Window
             FixedAccent.Text = s.Appearance.FixedAccent;
             ReduceMotion.SelectedIndex = (int)s.Appearance.ReduceMotion;
             BackgroundBlobs.IsOn = s.Appearance.BackgroundBlobs;
+
+            VisualiserEnabled.IsOn = s.Visualiser.Enabled;
+            VisualiserStyleBox.SelectedIndex = (int)s.Visualiser.Style;
+            VisualiserPlacementBox.SelectedIndex = (int)s.Visualiser.Placement;
+            VisualiserBars.Value = s.Visualiser.Bars;
+            VisualiserSmoothing.Value = s.Visualiser.Smoothing;
+            VisualiserMirrored.IsOn = s.Visualiser.Mirrored;
 
             MonitorMode.SelectedIndex = (int)s.Monitors.Mode;
             foreach (CheckBox check in _monitorChecks)
@@ -493,6 +502,15 @@ public sealed partial class SettingsWindow : Window
                 FixedAccent = accent,
                 ReduceMotion = (ReduceMotion)Math.Max(0, ReduceMotion.SelectedIndex),
                 BackgroundBlobs = BackgroundBlobs.IsOn,
+            },
+            Visualiser = current.Visualiser with
+            {
+                Enabled = VisualiserEnabled.IsOn,
+                Style = (VisualiserStyle)Math.Max(0, VisualiserStyleBox.SelectedIndex),
+                Placement = (VisualiserPlacement)Math.Max(0, VisualiserPlacementBox.SelectedIndex),
+                Bars = ToInt(VisualiserBars.Value, current.Visualiser.Bars),
+                Smoothing = ToDouble(VisualiserSmoothing.Value, current.Visualiser.Smoothing),
+                Mirrored = VisualiserMirrored.IsOn,
             },
             Monitors = current.Monitors with
             {

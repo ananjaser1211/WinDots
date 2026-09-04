@@ -14,6 +14,13 @@
 | `SettingsMigrator` | each version step; corrupt file recovery; unknown keys preserved |
 | `ShortcutParser` | valid/invalid chords |
 | `TimeFormat` | `m:ss`, `h:mm:ss`, negative/unknown |
+| `Fft` | power-of-two guard; length mismatch throws; constant -> DC-only; single-cycle sine -> bin 1 (`Visualiser/FftTests`) |
+| `AudioSpectrum` | 1 kHz sine peaks in its log band with much lower neighbours; DC excites only the lowest band; silence -> all bands ~0 and `IsSilent`; attack rises over several frames; decay slower than attack; peak-hold stays >= band and decays; band count clamps 24..96; short-frame zero-pad; sample-rate remap (`Visualiser/AudioSpectrumTests`) |
+| `WaveformBuffer` | envelope within [-1,1], min<=max; out-of-range clamped; empty frame -> zeros; per-bucket extremes (`Visualiser/WaveformBufferTests`) |
+| `AudioMixer` | stereo/5.1 channel averaging; mono passthrough; trailing partial frame ignored (`Visualiser/AudioMixerTests`) |
+| `VisualiserOptions` | bars clamp; settings bridge; camelCase enum round-trip; `FromOptions` attack>decay (`Visualiser/VisualiserOptionsTests`) |
+| `VisualiserLayout` | style family classification; art placements keep art styles in the artwork cell while `bottom` moves them to the strip; strip styles always in the strip; `blobPulse` in neither; art placements give three strictly-ordered z-depths (`Visualiser/VisualiserLayoutTests`) |
+| `PcmConverter` | format resolution (float32/pcm16/24/32, extensible sub-format, unsupported -> null); bytes-per-sample; float verbatim, int16/24/32 normalisation, 24-bit sign-extend, trailing partial sample ignored (`Visualiser/PcmConverterTests`). Capture (`WasapiLoopbackCapture`) opens a real audio device and is deliberately NOT unit-tested. |
 
 Run one: `dotnet test tests/WinDots.Core.Tests --filter "FullyQualifiedName~DrawerControllerTests.FlickOpens"`.
 

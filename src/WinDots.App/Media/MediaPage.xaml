@@ -111,17 +111,34 @@
             <Grid x:Name="ArtworkCell" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Center">
                 <controls:DottedProgressRing
                     x:Name="ProgressRing"
+                    Canvas.ZIndex="0"
                     Size="200"
                     DotCount="72"
                     DotDiameter="3.5"
                     Progress="{x:Bind ViewModel.Progress, Mode=OneWay}"
                     AccentBrush="{x:Bind ViewModel.AccentBrush}"
                     TrackBrush="{ThemeResource WdOutlineBrush}"
-                    Visibility="{x:Bind RingVisible(ViewModel.IsEmpty, ViewModel.Duration), Mode=OneWay}" />
+                    Visibility="{x:Bind RingVisible(ViewModel.IsEmpty, ViewModel.Duration, ViewModel.VisualiserActive, ViewModel.VisualiserStyle, ViewModel.VisualiserPlacement), Mode=OneWay}" />
                 <controls:BlobArtwork
                     x:Name="Artwork"
+                    Canvas.ZIndex="1"
                     Size="172"
                     ImageSource="{x:Bind ViewModel.Artwork, Mode=OneWay}" />
+                <!-- Art-area visualiser (ring / halo / particles) at an art placement: overlaps the ring area around the
+                     album blob. Placement drives the z-order (over / between / behind); Bottom moves it to the strip. -->
+                <controls:Visualiser
+                    x:Name="ArtVisualiser"
+                    Width="204"
+                    Height="204"
+                    IsHitTestVisible="False"
+                    Canvas.ZIndex="{x:Bind ArtVisualiserZ(ViewModel.VisualiserPlacement), Mode=OneWay}"
+                    RenderStyle="{x:Bind ViewModel.VisualiserStyle, Mode=OneWay}"
+                    AccentBrush="{x:Bind ViewModel.AccentBrush}"
+                    BarCount="{x:Bind ViewModel.VisualiserBarCount, Mode=OneWay}"
+                    Mirrored="{x:Bind ViewModel.VisualiserMirrored, Mode=OneWay}"
+                    Bands="{x:Bind ViewModel.VisualiserBands, Mode=OneWay}"
+                    Waveform="{x:Bind ViewModel.VisualiserWaveform, Mode=OneWay}"
+                    Visibility="{x:Bind ArtVisualiserVisible(ViewModel.VisualiserActive, ViewModel.VisualiserStyle, ViewModel.VisualiserPlacement), Mode=OneWay}" />
             </Grid>
 
             <!-- Centre: metadata, seek, transport, status, volume placeholder. -->
@@ -288,6 +305,22 @@
                     PlayerSelected="OnPlayerSelected" />
             </Grid>
         </Grid>
+
+        <!-- Strip visualiser (bars / waveform): a thin band pinned across the bottom of the drawer body. -->
+        <controls:Visualiser
+            x:Name="StripVisualiser"
+            Grid.Row="2"
+            Height="56"
+            Margin="20,0,20,6"
+            VerticalAlignment="Bottom"
+            IsHitTestVisible="False"
+            RenderStyle="{x:Bind ViewModel.VisualiserStyle, Mode=OneWay}"
+            AccentBrush="{x:Bind ViewModel.AccentBrush}"
+            BarCount="{x:Bind ViewModel.VisualiserBarCount, Mode=OneWay}"
+            Mirrored="{x:Bind ViewModel.VisualiserMirrored, Mode=OneWay}"
+            Bands="{x:Bind ViewModel.VisualiserBands, Mode=OneWay}"
+            Waveform="{x:Bind ViewModel.VisualiserWaveform, Mode=OneWay}"
+            Visibility="{x:Bind StripVisualiserVisible(ViewModel.VisualiserActive, ViewModel.VisualiserStyle, ViewModel.VisualiserPlacement), Mode=OneWay}" />
 
         <!-- Hidden live region: announces play/pause transitions to Narrator without occupying layout. Its text is set
              from code-behind on IsPlaying changes; Opacity 0 keeps it invisible while still exposed to UI Automation. -->

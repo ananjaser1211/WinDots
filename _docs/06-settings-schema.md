@@ -13,7 +13,7 @@ File: `%LOCALAPPDATA%\WinDots\settings.json`. UTF-8, camelCase, written atomical
   "diagnostics": {},
   "lyrics": { "provider": "Lrclib", "offsetMs": 0 },
   "lastfm": { "enabled": false, "scrobble": true, "nowPlaying": true },
-  "visualiser": {},
+  "visualiser": { "enabled": false, "style": "ring", "placement": "behindArt", "bars": 60, "smoothing": 0.6, "mirrored": false },
   "weather": {},
   "performance": {}
 }
@@ -108,12 +108,23 @@ Fetched lyrics are cached for 30 days in `LocalState\cache\lyrics`, keyed by a S
 
 The JSON section key is `lastfm`. Credentials (API key/secret when the build has none, and the session key + username after sign-in) are stored in Windows Credential Manager under the `WinDots` resource via `ISecretStore`, never in `settings.json`. Pending scrobbles are queued in `LocalState\scrobble-queue.json` (bounded to 500, idempotent by track identity + timestamp, retried with exponential backoff); this file is not part of `settings.json`. See `_docs/10-enhancement-plan.md` (E4), `_docs/privacy.md`, and `_docs/09-dev-environment.md` (build-time key).
 
+## `visualiser`
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `enabled` | bool | `false` | Master switch. Off under reduced motion, battery saver, and remote sessions regardless. |
+| `style` | enum | `"ring"` | `bars` \| `waveform` \| `ring` \| `halo` \| `blobPulse` \| `particles` (serialised camelCase). |
+| `placement` | enum | `"behindArt"` | `underArt` \| `overArt` \| `behindArt` \| `bottom`. For art-area styles (ring/halo/particles) the three art placements set the depth in the artwork cell (over / between / behind the album blob) and `bottom` moves the style into the bottom strip band. Strip styles (bars/waveform) always render in the strip; `blobPulse` ignores placement (the page scales the blob). |
+| `bars` | int | `60` | Frequency bands; clamped to 24..96. |
+| `smoothing` | double | `0.6` | Decay smoothing 0..1; higher is smoother (slower fall). Attack is always faster. |
+| `mirrored` | bool | `false` | Mirror the bands about the centre. |
+
+The DSP is in `WinDots.Core.Visualiser` (`AudioSpectrum`, `WaveformBuffer`, `AudioMixer`, `Fft`, `PcmConverter`, pure and unit-tested); `Settings.ToVisualiserOptions()` bridges this section to the runtime `VisualiserOptions`. Loopback audio is captured via `IAudioLoopbackCapture` (Core contract), implemented by `WinDots.Windows.Audio.WasapiLoopbackCapture` (WASAPI shared-mode loopback on the default render endpoint), and never written to disk. See `_docs/10-enhancement-plan.md` (E5).
+
 ## Later phases (present with defaults, ignored until the phase ships)
 
 | Section | Key | Default |
 |---|---|---|
-| `visualiser` | `enabled` | `false` |
-| `visualiser` | `bars` | `60` |
 | `weather` | `enabled` | `false` |
 | `weather` | `location` | `""` |
 | `weather` | `useFahrenheit` | `false` |

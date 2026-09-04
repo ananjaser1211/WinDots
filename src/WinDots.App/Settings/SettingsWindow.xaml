@@ -28,6 +28,7 @@
                 <muxc:NavigationViewItem Content="Lyrics" Tag="Lyrics" />
                 <muxc:NavigationViewItem Content="Last.fm" Tag="LastFm" />
                 <muxc:NavigationViewItem Content="Appearance" Tag="Appearance" />
+                <muxc:NavigationViewItem Content="Visualiser" Tag="Visualiser" />
                 <muxc:NavigationViewItem Content="Monitors" Tag="Monitors" />
                 <muxc:NavigationViewItem Content="Privacy" Tag="Privacy" />
                 <muxc:NavigationViewItem Content="Diagnostics" Tag="Diagnostics" />
@@ -169,6 +170,38 @@
                             <ComboBoxItem Content="Off" />
                         </ComboBox>
                         <ToggleSwitch x:Name="BackgroundBlobs" Header="Background blobs" AutomationProperties.Name="Background blobs" />
+                    </StackPanel>
+
+                    <!-- Visualiser -->
+                    <StackPanel x:Name="VisualiserSection" Spacing="16" Visibility="Collapsed">
+                        <TextBlock Text="Visualiser" Style="{StaticResource TitleTextBlockStyle}" />
+                        <StackPanel Spacing="4">
+                            <ToggleSwitch x:Name="VisualiserEnabled" Header="Enabled" AutomationProperties.Name="Visualiser enabled" />
+                            <TextBlock Text="Renders the system audio output around the media drawer. It is analysed in memory only and never stored or sent. Off automatically under reduced motion, battery saver, or a remote session." Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ComboBox x:Name="VisualiserStyleBox" Header="Style" AutomationProperties.Name="Visualiser style">
+                            <ComboBoxItem Content="Bars" />
+                            <ComboBoxItem Content="Waveform" />
+                            <ComboBoxItem Content="Ring (around the artwork)" />
+                            <ComboBoxItem Content="Halo" />
+                            <ComboBoxItem Content="Blob pulse" />
+                            <ComboBoxItem Content="Particles" />
+                        </ComboBox>
+                        <ComboBox x:Name="VisualiserPlacementBox" Header="Placement" AutomationProperties.Name="Visualiser placement">
+                            <ComboBoxItem Content="Under artwork" />
+                            <ComboBoxItem Content="Over artwork" />
+                            <ComboBoxItem Content="Behind artwork" />
+                            <ComboBoxItem Content="Bottom strip" />
+                        </ComboBox>
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Bars" Style="{StaticResource BodyTextBlockStyle}" />
+                            <Slider x:Name="VisualiserBars" Minimum="24" Maximum="96" StepFrequency="1" AutomationProperties.Name="Visualiser bar count" />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Smoothing" Style="{StaticResource BodyTextBlockStyle}" />
+                            <Slider x:Name="VisualiserSmoothing" Minimum="0" Maximum="0.95" StepFrequency="0.05" AutomationProperties.Name="Visualiser smoothing" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="VisualiserMirrored" Header="Mirror bars about the centre" AutomationProperties.Name="Mirror visualiser bars" />
                     </StackPanel>
 
                     <!-- Monitors -->

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using WinDots.Core.Media;
+using WinDots.Core.Visualiser;
 
 namespace WinDots.Core.Settings;
 
@@ -249,9 +250,23 @@ public sealed record LastFmSettings
 
 public sealed record VisualiserSettings
 {
+    /// <summary>Whether the visualiser is active. Off by default.</summary>
     public bool Enabled { get; init; }
 
+    /// <summary>Render style; serialised camelCase (e.g. <c>ring</c>, <c>bars</c>, <c>blobPulse</c>).</summary>
+    public VisualiserStyle Style { get; init; } = VisualiserStyle.Ring;
+
+    /// <summary>Placement relative to the artwork; serialised camelCase (e.g. <c>behindArt</c>).</summary>
+    public VisualiserPlacement Placement { get; init; } = VisualiserPlacement.BehindArt;
+
+    /// <summary>Number of frequency bands (24..96). Clamped by <see cref="VisualiserOptions.ClampedBars"/>.</summary>
     public int Bars { get; init; } = 60;
+
+    /// <summary>Decay smoothing factor in 0..1; higher is smoother.</summary>
+    public double Smoothing { get; init; } = 0.6;
+
+    /// <summary>Mirror the bands about the centre.</summary>
+    public bool Mirrored { get; init; }
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement> Extra { get; init; } = new(StringComparer.Ordinal);
@@ -294,6 +309,22 @@ public static class SettingsExtensions
             VolumeStepPercent = media.VolumeStepPercent,
             SourceMode = media.SourceMode,
             SourceRules = media.SourceRules.ToArray(),
+        };
+    }
+
+    /// <summary>Bridges the settings <c>visualiser</c> section to the runtime <see cref="VisualiserOptions"/> record.</summary>
+    public static VisualiserOptions ToVisualiserOptions(this Settings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        VisualiserSettings visualiser = settings.Visualiser;
+        return new VisualiserOptions
+        {
+            Enabled = visualiser.Enabled,
+            Style = visualiser.Style,
+            Placement = visualiser.Placement,
+            Bars = visualiser.Bars,
+            Smoothing = visualiser.Smoothing,
+            Mirrored = visualiser.Mirrored,
         };
     }
 }

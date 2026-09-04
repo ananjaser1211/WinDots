@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="WinDots.App.Media.Controls.Visualiser"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    IsHitTestVisible="False"
+    IsTabStop="False">
+
+    <!-- All marks are drawn into this Canvas in code-behind and updated each frame through their composition
+         visuals (scale / offset / opacity), so a frame never triggers layout. See _docs/04-visual-design.md (E5). -->
+    <Canvas x:Name="Host" />
+</UserControl>
