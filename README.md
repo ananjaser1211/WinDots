@@ -19,7 +19,7 @@ Early development. The solution, media-session adapter, drawer gesture engine, a
 
 ## Documentation
 
-Specifications, architecture, settings schema, test matrix, and decision records live in [`_docs/`](./_docs/README.md). `IMPLEMENTATION.md` is the top-level plan and `AGENTS.md` holds contributor rules.
+Specifications, architecture, settings schema, test matrix, roadmap, privacy notes, and decision records live in [`_docs/`](./_docs/README.md). `AGENTS.md` holds contributor rules.
 
 ## License
 

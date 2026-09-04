@@ -1,6 +1,6 @@
 # WinDots documentation
 
-`_docs/` is the detailed specification set for WinDots. `IMPLEMENTATION.md` at the repository root remains the top-level plan; the files here expand it into build-ready detail.
+`_docs/` is the complete specification set for WinDots: product, interaction, visual design, architecture, settings, testing, roadmap, enhancement queue, privacy, environment, and decision records.
 
 ## Reading order
 
@@ -15,6 +15,8 @@
 | 7 | [07-testing-and-compatibility.md](./07-testing-and-compatibility.md) | You write tests or test against a real player |
 | 8 | [08-roadmap.md](./08-roadmap.md) | You pick the next task or check milestone exit criteria |
 | 9 | [09-dev-environment.md](./09-dev-environment.md) | You set up a machine or the build breaks on tooling |
+| 10 | [10-enhancement-plan.md](./10-enhancement-plan.md) | You plan or build music-only detection, source rules, lyrics, Last.fm, media keys, or the visualiser |
+| - | [privacy.md](./privacy.md) | You add anything that stores data or talks to the network |
 | - | [decisions/](./decisions/) | You are about to make a hard-to-reverse choice; read existing ADRs and add one |
 
 ## Ownership and upkeep

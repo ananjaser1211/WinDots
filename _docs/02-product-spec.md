@@ -94,8 +94,8 @@ Phases are cumulative. Phase A is the MVP and must ship stable before Phase B st
 - **Weather tab**: current conditions and forecast, same provider as B.
 - **Lyrics**: provider abstraction, synced lines, offset control, cache with attribution.
 - **Visualiser**: WASAPI loopback, FFT bands, composition-rendered, `visualiser.bars`.
-- Last.fm, ListenBrainz, history, favourites, themes, focus modes as listed in `IMPLEMENTATION.md` section 9.
+- Last.fm, ListenBrainz, history, favourites, themes, focus modes and more as catalogued in `10-enhancement-plan.md`.
 
 ## Non-goals (all phases)
 
-See `IMPLEMENTATION.md` section 2 and the `AGENTS.md` hard constraints. In short: no Linux runtime, no UI scraping, no elevated install, no telemetry, no bundled third-party art.
+See the `AGENTS.md` hard constraints. In short: no Linux runtime, no UI scraping, no elevated install, no telemetry, no bundled third-party art.

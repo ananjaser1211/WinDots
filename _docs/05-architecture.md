@@ -204,3 +204,12 @@ Consequences: a surviving session never changes ID when a duplicate (a second br
 
 - MSIX with `rescap:Capability Name="globalMediaControl"`, `runFullTrust`, a `StartupTask` extension, and per-monitor DPI v2 in the app manifest.
 - Self-contained Windows App SDK is **off** (framework-dependent) to keep the package small; revisit if sideload friction appears.
+
+## Reliability and performance rules
+
+- Event-driven session observation with cancellation-aware async operations; coalesce rapid metadata events and discard stale artwork loads.
+- Keep decoded artwork bounded by pixel dimensions and the cache budget; never block the UI thread on COM, file, network, or image work.
+- Treat every player command as a request that can be rejected; reflect advertised capabilities in the UI.
+- Re-enumerate cleanly after Explorer, audio service, display, or media-player restarts.
+- Structured local logs with bounded rotation; diagnostics export omits media titles unless explicitly included.
+- Budgets: idle CPU below 0.5 % closed and 1.5 % open, working set below 150 MB after an hour, 60 fps reveal, no unhandled exceptions in an eight-hour soak (measured per `07-testing-and-compatibility.md`).

@@ -56,7 +56,7 @@ Branch naming: `feat/<area>`, `fix/<area>`, `docs/<area>`. Every milestone ends 
 1. Manifest, icons, versioning, dev-cert sideload instructions.
 2. Diagnostics export, privacy doc, soak test.
 3. Tag `v0.1.0` (with explicit user authorisation).
-- **Exit**: install/upgrade/uninstall verified; acceptance criteria in `IMPLEMENTATION.md` section 8 met.
+- **Exit**: install/upgrade/uninstall verified; the MVP acceptance criteria at the end of this file met.
 
 ## Phase B - Dashboard tab
 
@@ -66,8 +66,28 @@ Branch naming: `feat/<area>`, `fix/<area>`, `docs/<area>`. Every milestone ends 
 
 ## Phase C - Remaining tabs and integrations
 
-- **M10** Performance tab. **M11** Weather tab. **M12** Lyrics providers. **M13** Visualiser. **M14** Last.fm. Then history, themes, favourites, focus modes per `IMPLEMENTATION.md` section 9.
+- **M10** Performance tab. **M11** Weather tab. **M12** Lyrics providers. **M13** Visualiser. **M14** Last.fm. Then the E7 items in `10-enhancement-plan.md`.
 
 ## Execution order reminder
 
 Never start the next milestone before the current one's exit criteria are recorded here as met.
+
+## MVP acceptance criteria (checked at M6)
+
+- Interaction: handle opens by click and drag; drag is continuous and completes on distance or velocity; dismiss by upward drag, outside click, Escape; handle absent from taskbar and Alt+Tab; multi-monitor placement correct at mixed scales.
+- Media: compatible players appear automatically; active player is sensible and overridable; metadata and artwork update on track change; play/pause, previous, next, seek work when advertised; multiple sessions browsable; malformed metadata handled.
+- Quality: no continuous high-frequency polling; budgets in `05-architecture.md` met; essential controls keyboard-accessible with accessibility names.
+
+## Key risks and mitigations
+
+| Risk | Mitigation |
+|---|---|
+| Player exposes incomplete session data | Capability-aware UI, aliases, compatibility matrix |
+| Browser audio cannot be mapped to one tab | Conservative confidence threshold; hide volume instead of guessing |
+| Handle interferes with application chrome | Narrow hit target, per-monitor disable, configurable position and shortcut |
+| Topmost UI conflicts with games | Full-screen suppression and keyboard fallback |
+| Restricted media capability complicates packaging | Proven in M1; documented sideloading |
+| Malformed or oversized artwork | Bounded streams, decode limits, cancellation, cache quotas |
+| Visual effects consume power | Composition animations, battery-saver and reduced-motion modes |
+| Duplicate scrobbles | Deterministic track identity, qualification state machine, idempotent queue |
+| Scope creep before the core is stable | Milestone exit criteria; integrations after the MVP |
