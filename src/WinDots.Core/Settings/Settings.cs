@@ -17,6 +17,10 @@ public sealed record Settings
 
     public int SchemaVersion { get; init; } = 1;
 
+    /// <summary>The tab shown when the drawer opens. Defaults to <see cref="DashboardTab.Media"/> so the
+    /// approved media view stays the landing view.</summary>
+    public DashboardTab SelectedTab { get; init; } = DashboardTab.Media;
+
     public DrawerSettings Drawer { get; init; } = new();
 
     public MediaSettings Media { get; init; } = new();
@@ -102,6 +106,15 @@ public enum LyricsProvider
 {
     Off,
     Lrclib,
+}
+
+/// <summary>The selectable top-level tabs of the drawer. <see cref="Media"/> is the default landing tab.</summary>
+public enum DashboardTab
+{
+    Dashboard,
+    Media,
+    Performance,
+    Weather,
 }
 
 public sealed record DrawerSettings
@@ -276,6 +289,9 @@ public sealed record WeatherSettings
 {
     public bool Enabled { get; init; }
 
+    /// <summary>Explicit user consent to the weather network provider. Nothing is fetched while this is false.</summary>
+    public bool ConsentGranted { get; init; }
+
     public string Location { get; init; } = string.Empty;
 
     public bool UseFahrenheit { get; init; }
@@ -286,7 +302,17 @@ public sealed record WeatherSettings
 
 public sealed record PerformanceSettings
 {
+    /// <summary>Lower bound for <see cref="ClampedSampleIntervalMs"/>: sampling faster than this is wasteful.</summary>
+    public const int MinSampleIntervalMs = 250;
+
+    /// <summary>Upper bound for <see cref="ClampedSampleIntervalMs"/>: sampling slower feels stale.</summary>
+    public const int MaxSampleIntervalMs = 10_000;
+
     public int SampleIntervalMs { get; init; } = 1000;
+
+    /// <summary>The configured interval clamped to <c>[<see cref="MinSampleIntervalMs"/>, <see cref="MaxSampleIntervalMs"/>]</c>.</summary>
+    [JsonIgnore]
+    public int ClampedSampleIntervalMs => Math.Clamp(SampleIntervalMs, MinSampleIntervalMs, MaxSampleIntervalMs);
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement> Extra { get; init; } = new(StringComparer.Ordinal);

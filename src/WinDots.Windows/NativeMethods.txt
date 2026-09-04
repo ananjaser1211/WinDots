@@ -55,6 +55,10 @@ AUDCLNT_SHAREMODE
 AUDCLNT_STREAMFLAGS_LOOPBACK
 _AUDCLNT_BUFFERFLAGS
 
+// System/SystemMetricsProvider.cs - resource metrics for the Dashboard
+GlobalMemoryStatusEx
+GetSystemTimes
+
 GetPackageFamilyName
 OpenProcess
 CloseHandle
