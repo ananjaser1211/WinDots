@@ -194,6 +194,13 @@ public sealed class LastFmService : IDisposable
             {
                 await Task.Delay(PollInterval, ct).ConfigureAwait(true);
             }
+            catch (LastFmException ex) when (ex.IsTransient)
+            {
+                // A network blip or a temporary Last.fm outage must not abort the whole one-click sign-in; keep
+                // polling until the deadline.
+                ShellLog.Write($"last.fm: getSession transient (code {ex.Code}); still polling");
+                await Task.Delay(PollInterval, ct).ConfigureAwait(true);
+            }
             catch (LastFmException ex)
             {
                 ShellLog.Write($"last.fm: getSession failed (code {ex.Code})");
@@ -244,7 +251,7 @@ public sealed class LastFmService : IDisposable
     /// <summary>Loves or unloves a track. No-op when signed out.</summary>
     public async Task<bool> SetLovedAsync(TrackIdentity identity, bool loved, CancellationToken ct)
     {
-        if (_client is null || !IsSignedIn || !identity.IsUsable)
+        if (!_settings.Enabled || _client is null || !IsSignedIn || !identity.IsUsable)
         {
             return false;
         }
@@ -268,6 +275,7 @@ public sealed class LastFmService : IDisposable
         catch (LastFmException ex)
         {
             ShellLog.Write($"last.fm: {(loved ? "love" : "unlove")} failed (code {ex.Code})");
+            await HandleAuthFailureAsync(ex).ConfigureAwait(true);
             return false;
         }
     }
@@ -353,6 +361,27 @@ public sealed class LastFmService : IDisposable
         catch (LastFmException ex)
         {
             ShellLog.Write($"last.fm: now-playing failed (code {ex.Code})");
+            await HandleAuthFailureAsync(ex).ConfigureAwait(true);
+        }
+    }
+
+    // A revoked/invalid session (codes 4/9/10/13) never recovers on retry: sign out so scrobbles stop hammering the
+    // API and the UI prompts a fresh sign-in. Queued scrobbles stay queued and drain once re-authenticated.
+    private async Task HandleAuthFailureAsync(LastFmException ex)
+    {
+        if (!ex.IsAuthFailure)
+        {
+            return;
+        }
+
+        ShellLog.Write($"last.fm: session invalid (code {ex.Code}); signing out, re-authentication required");
+        try
+        {
+            await SignOutAsync(CancellationToken.None).ConfigureAwait(true);
+        }
+        catch (Exception signOutEx)
+        {
+            ShellLog.Write($"last.fm: sign-out after auth failure threw: {signOutEx.GetType().Name}");
         }
     }
 
@@ -383,6 +412,7 @@ public sealed class LastFmService : IDisposable
             {
                 _queue.MarkFailure(batch, now);
                 ShellLog.Write($"last.fm: scrobble batch failed (code {ex.Code}); {_queue.Count} queued");
+                await HandleAuthFailureAsync(ex).ConfigureAwait(true);
             }
         }
         finally

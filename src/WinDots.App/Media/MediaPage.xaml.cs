@@ -233,7 +233,7 @@ public sealed partial class MediaPage : UserControl
     {
         LastFmService? svc = _lastFm;
         TrackIdentity? id = svc?.CurrentTrack();
-        bool show = svc is { IsSignedIn: true } && id is not null;
+        bool show = svc is { Enabled: true, IsSignedIn: true } && id is not null;
         LoveButton.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         if (show)
         {
