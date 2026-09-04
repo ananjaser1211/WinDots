@@ -37,6 +37,7 @@ public sealed partial class SettingsWindow : Window
     private readonly IMonitorService? _monitors;
     private readonly SourceRegistry? _sources;
     private readonly LastFmService? _lastFm;
+    private readonly WinDots.App.Shell.ShellMessageWindow? _shell;
     private readonly List<CheckBox> _monitorChecks = new();
     private readonly List<SourceRow> _sourceRows = new();
 
@@ -47,12 +48,13 @@ public sealed partial class SettingsWindow : Window
     private StartupTask? _startupTask;
     private CancellationTokenSource? _signInCts;
 
-    public SettingsWindow(ISettingsStore store, IMonitorService? monitors, SourceRegistry? sources = null, LastFmService? lastFm = null)
+    public SettingsWindow(ISettingsStore store, IMonitorService? monitors, SourceRegistry? sources = null, LastFmService? lastFm = null, WinDots.App.Shell.ShellMessageWindow? shell = null)
     {
         _store = store;
         _monitors = monitors;
         _sources = sources;
         _lastFm = lastFm;
+        _shell = shell;
         InitializeComponent();
 
         Title = "WinDots settings";
@@ -76,6 +78,13 @@ public sealed partial class SettingsWindow : Window
             RefreshLastFmUi();
         }
 
+        if (_shell is not null)
+        {
+            _shell.ToggleHotkeyStatusChanged += OnHotkeyStatusChanged;
+        }
+
+        RefreshHotkeyConflict();
+
         Closed += OnWindowClosed;
     }
 
@@ -84,6 +93,11 @@ public sealed partial class SettingsWindow : Window
         if (_lastFm is not null)
         {
             _lastFm.StateChanged -= OnLastFmStateChanged;
+        }
+
+        if (_shell is not null)
+        {
+            _shell.ToggleHotkeyStatusChanged -= OnHotkeyStatusChanged;
         }
 
         _signInCts?.Cancel();
@@ -298,6 +312,75 @@ public sealed partial class SettingsWindow : Window
         ShortcutError.Text = $"'{text}' is not a valid shortcut (e.g. Win+Shift+M).";
         ShortcutError.Visibility = Visibility.Visible;
         return false;
+    }
+
+    private void OnHotkeyStatusChanged(object? sender, EventArgs e)
+    {
+        if (DispatcherQueue.HasThreadAccess)
+        {
+            RefreshHotkeyConflict();
+        }
+        else
+        {
+            _ = DispatcherQueue.TryEnqueue(RefreshHotkeyConflict);
+        }
+    }
+
+    /// <summary>
+    /// Shows the inline conflict warning when the shell's last toggle-hotkey registration failed because another app
+    /// owns the combination, and hides it otherwise. Driven both on open and by the shell's re-register event, so
+    /// fixing the chord in Settings clears the warning without a restart.
+    /// </summary>
+    private void RefreshHotkeyConflict()
+    {
+        if (_shell is null)
+        {
+            ShortcutConflictPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        HotkeyRegistration registration = _shell.ToggleHotkeyRegistration;
+        if (registration.IsConflict)
+        {
+            string chord = _shell.ToggleHotkeyChord is { } c ? ShortcutParser.Format(c) : ToggleShortcut.Text;
+            ShortcutConflictText.Text =
+                $"“{chord}” is already in use by another app, so WinDots could not register it. "
+                + "Choose a different shortcut, or free it up in the other app.";
+            ShortcutConflictPanel.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            ShortcutConflictPanel.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void OnSuggestShortcut(object sender, RoutedEventArgs e)
+    {
+        // Base the suggestion on whatever is valid in the field, falling back to the chord the shell tried.
+        Shortcut? desired = ShortcutParser.TryParse(ToggleShortcut.Text, out Shortcut? parsed)
+            ? parsed
+            : _shell?.ToggleHotkeyChord;
+        if (desired is null)
+        {
+            return;
+        }
+
+        // Avoid the current (conflicting) chord itself; ShortcutSuggester also skips well-known OS combos.
+        Shortcut? alternative = ShortcutSuggester.SuggestFirst(desired, new[] { desired });
+        if (alternative is null)
+        {
+            StatusText.Text = "No alternative shortcut is available.";
+            return;
+        }
+
+        // Filling the field runs the normal validate path; Save then re-registers and clears the conflict.
+        ToggleShortcut.Text = ShortcutParser.Format(alternative);
+        StatusText.Text = "Suggested a free shortcut. Press Save to apply it.";
+    }
+
+    private void OnOpenKeyboardSettings(object sender, RoutedEventArgs e)
+    {
+        _ = global::Windows.System.Launcher.LaunchUriAsync(new Uri("ms-settings:keyboard"));
     }
 
     private void OnMonitorModeChanged(object sender, SelectionChangedEventArgs e) => UpdateMonitorListEnabled();

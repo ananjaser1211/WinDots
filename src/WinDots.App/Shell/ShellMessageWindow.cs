@@ -14,7 +14,7 @@ namespace WinDots.App.Shell;
 /// existing UI-thread message loop because the window is created on that thread. All callbacks run on the UI thread,
 /// so they may touch the drawer host and other windows directly.
 /// </summary>
-internal sealed class ShellMessageWindow : IDisposable
+public sealed class ShellMessageWindow : IDisposable
 {
     private const int HotkeyId = 1;
 
@@ -73,6 +73,19 @@ internal sealed class ShellMessageWindow : IDisposable
 
     private bool _mediaKeysRegistered;
     private bool _lastCaptureMediaKeys;
+
+    /// <summary>
+    /// The outcome of the most recent toggle-hotkey registration and the chord it was for. The settings UI reads this
+    /// to surface a conflict inline; <see cref="ToggleHotkeyStatusChanged"/> fires whenever it is recomputed (including
+    /// the live re-register after the chord is changed in Settings) so a fix clears the warning without a restart.
+    /// </summary>
+    public HotkeyRegistration ToggleHotkeyRegistration { get; private set; }
+
+    /// <summary>The chord the last registration attempt used (after fallback), for display alongside a conflict.</summary>
+    public Shortcut? ToggleHotkeyChord { get; private set; }
+
+    /// <summary>Raised (on the UI thread) after every toggle-hotkey registration attempt.</summary>
+    public event EventHandler? ToggleHotkeyStatusChanged;
 
     private nint _hwnd;
     private nint _iconHandle;
@@ -198,18 +211,31 @@ internal sealed class ShellMessageWindow : IDisposable
         }
 
         uint mods = ToWin32Modifiers(chord.Modifiers) | NativeInterop.MOD_NOREPEAT;
-        _hotkeyRegistered = NativeInterop.RegisterHotKey(_hwnd, HotkeyId, mods, (uint)chord.Key);
+        bool ok = NativeInterop.RegisterHotKey(_hwnd, HotkeyId, mods, (uint)chord.Key);
+        // Capture the error immediately, before any other Win32 call can overwrite it.
+        HotkeyRegistration outcome = HotkeyRegistration.Classify(ok, ok ? 0 : Marshal.GetLastWin32Error());
+        _hotkeyRegistered = ok;
+        ToggleHotkeyRegistration = outcome;
+        ToggleHotkeyChord = chord;
 
-        if (_hotkeyRegistered)
+        switch (outcome.Outcome)
         {
-            WinDots.App.Diagnostics.ShellLog.Write($"hotkey registered: {ShortcutParser.Format(chord)}");
+            case HotkeyOutcome.Registered:
+                WinDots.App.Diagnostics.ShellLog.Write($"hotkey registered: {ShortcutParser.Format(chord)}");
+                break;
+            case HotkeyOutcome.Conflict:
+                // 1409: the combination is already owned by another application (e.g. PowerToys). Keep running.
+                WinDots.App.Diagnostics.ShellLog.Write(
+                    $"hotkey: {ShortcutParser.Format(chord)} conflicts with another app that already owns this combination "
+                    + $"(code {outcome.Code}); hotkey disabled until you pick a different chord");
+                break;
+            default:
+                WinDots.App.Diagnostics.ShellLog.Write(
+                    $"hotkey: RegisterHotKey {ShortcutParser.Format(chord)} failed ({outcome.Code}); hotkey disabled");
+                break;
         }
-        else
-        {
-            // Another app may already own the combination; log and keep running.
-            WinDots.App.Diagnostics.ShellLog.Write(
-                $"hotkey: RegisterHotKey {ShortcutParser.Format(chord)} failed ({Marshal.GetLastWin32Error()}); hotkey disabled");
-        }
+
+        ToggleHotkeyStatusChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private static uint ToWin32Modifiers(ShortcutModifiers modifiers)

@@ -46,6 +46,19 @@
                         <StackPanel Spacing="4">
                             <TextBox x:Name="ToggleShortcut" Header="Toggle shortcut" PlaceholderText="Win+Shift+M" TextChanged="OnShortcutChanged" AutomationProperties.Name="Toggle shortcut" />
                             <TextBlock x:Name="ShortcutError" Foreground="{ThemeResource SystemFillColorCriticalBrush}" Style="{StaticResource CaptionTextBlockStyle}" Visibility="Collapsed" />
+                            <StackPanel x:Name="ShortcutConflictPanel" Spacing="8" Visibility="Collapsed"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="4" Padding="12">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE7BA;" FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                                              Foreground="{ThemeResource SystemFillColorCautionBrush}" VerticalAlignment="Top" FontSize="16" />
+                                    <TextBlock x:Name="ShortcutConflictText" TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}"
+                                               Text="This shortcut is already in use by another app, so WinDots could not register it." />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button x:Name="SuggestShortcut" Content="Suggest alternative" Click="OnSuggestShortcut" AutomationProperties.Name="Suggest an alternative shortcut" />
+                                    <Button x:Name="OpenKeyboardSettings" Content="Open Windows keyboard settings" Click="OnOpenKeyboardSettings" AutomationProperties.Name="Open Windows keyboard settings" />
+                                </StackPanel>
+                            </StackPanel>
                         </StackPanel>
                         <muxc:NumberBox x:Name="AutoHideMs" Header="Auto-hide after inactivity (ms, 0 = never)" SpinButtonPlacementMode="Inline" Minimum="0" Maximum="600000" AutomationProperties.Name="Auto-hide milliseconds" />
                         <ToggleSwitch x:Name="HideAfterCommand" Header="Hide after a command" AutomationProperties.Name="Hide after command" />

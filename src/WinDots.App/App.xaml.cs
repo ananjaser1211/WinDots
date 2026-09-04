@@ -112,7 +112,7 @@ public partial class App : Application
             return;
         }
 
-        _settingsWindow = new SettingsWindow(_settings, _monitors, _host?.Sources, _host?.LastFm);
+        _settingsWindow = new SettingsWindow(_settings, _monitors, _host?.Sources, _host?.LastFm, _shell);
         _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         _settingsWindow.Activate();
     }

@@ -78,7 +78,7 @@ First pass — BUILT (2026-09-04): both the seek and volume `Slider`s now take t
 | Favourites | Local favourite flag; Last.fm love when connected | none | |
 | Quiet hours and full-screen suppression | Hide handles during games/presentations | none | Already partly in settings |
 | Update check | Check GitHub releases on demand and weekly (opt-in) | none | No auto-download |
-| Shortcut conflict detection | Detect 1409 and offer alternatives / open Settings | none | PowerToys collision seen on the dev machine |
+| Shortcut conflict detection | Detect 1409 and offer alternatives / open Settings | none | BUILT 2026-09-05: Core `HotkeyRegistration.Classify` (1409→Conflict) + `ShortcutSuggester` (deterministic same-key alternatives, avoid-set + reserved-combo skip, +16 tests); `ShellMessageWindow` records the outcome and re-registers on settings change; Settings shows an inline conflict warning with "Suggest alternative" + "Open Windows keyboard settings" |
 | Portable / unpackaged build | For users who cannot sideload MSIX | none | `globalMediaControl` requires identity; investigate sparse packages |
 | Localisation | Resource-based strings, RTL | none | |
 | Focus mode | Timer tied to a player, gentle track-change toast | none | |
