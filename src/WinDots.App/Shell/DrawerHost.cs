@@ -2,15 +2,20 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.IO;
+using System.Net.Http;
+using System.Threading;
 using Microsoft.UI.Dispatching;
 using Windows.Storage;
 using Windows.UI.ViewManagement;
 using WinDots.App.Diagnostics;
+using WinDots.App.LastFm;
 using WinDots.App.Media;
 using WinDots.Core.Contracts;
 using WinDots.Core.Drawer;
+using WinDots.Core.Lyrics;
 using WinDots.Core.Media;
 using WinDots.Core.Settings;
+using WinDots.Windows.Security;
 
 namespace WinDots.App.Shell;
 
@@ -31,7 +36,13 @@ public sealed class DrawerHost
     private readonly ISettingsStore _settings;
     private readonly DrawerController _controller;
     private readonly SessionCoordinator _coordinator;
+    private readonly SourceRegistry _sources;
     private readonly ArtworkCache _artworkCache;
+    private readonly SocketsHttpHandler _httpHandler;
+    private readonly LrclibProvider _lyricsProvider;
+    private readonly LyricsCache _lyricsCache;
+    private readonly LyricsOffsetStore _lyricsOffsets;
+    private readonly LastFmService _lastFm;
     private readonly MediaViewModel _viewModel;
     private readonly DrawerWindow _drawer;
     private readonly List<HandleWindow> _handles = new();
@@ -103,10 +114,37 @@ public sealed class DrawerHost
         var mediaOptions = BuildMediaOptions(current);
 
         _coordinator = new SessionCoordinator(provider, mediaOptions);
+
+        // Persist every source ever seen (id, display name, last-seen, last verdict), bounded to 200 entries, for
+        // the settings Sources page. Written on candidate changes; see _docs/10-enhancement-plan.md (E1).
+        var sourcesPath = Path.Combine(ApplicationData.Current.LocalFolder.Path, "sources.json");
+        _sources = new SourceRegistry(sourcesPath);
+        _coordinator.CandidatesChanged += OnCandidatesChangedForRegistry;
+
         var artworkDir = Path.Combine(ApplicationData.Current.LocalFolder.Path, "cache", "artwork");
         _artworkCache = new ArtworkCache(artworkDir, 32L * 1024 * 1024);
-        _viewModel = new MediaViewModel(_coordinator, provider, _artworkCache, mediaOptions, _dispatcher, audio);
+
+        // Lyrics (E3): a keyless LRCLIB provider over a pooled handler, a 30-day disk cache, and per-track offsets.
+        // The provider enforces HTTPS, a 5 s timeout, and a 256 KB cap; nothing runs until lyrics.provider is LRCLIB.
+        _httpHandler = new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(2) };
+        _lyricsProvider = new LrclibProvider(_httpHandler, ShellLog.Write);
+        var lyricsCacheDir = Path.Combine(ApplicationData.Current.LocalFolder.Path, "cache", "lyrics");
+        _lyricsCache = new LyricsCache(lyricsCacheDir);
+        var offsetsPath = Path.Combine(ApplicationData.Current.LocalFolder.Path, "lyrics-offsets.json");
+        _lyricsOffsets = new LyricsOffsetStore(offsetsPath);
+
+        // Last.fm (E4): credentials in Credential Manager, a queue under LocalState, the shared HTTP handler. The
+        // service watches the coordinator; nothing is sent until lastfm.enabled and the user has signed in.
+        var scrobbleQueuePath = Path.Combine(ApplicationData.Current.LocalFolder.Path, "scrobble-queue.json");
+        _lastFm = new LastFmService(new CredentialManagerSecretStore(), _httpHandler, _coordinator, _dispatcher, scrobbleQueuePath);
+        _ = _lastFm.InitializeAsync(current.LastFm, CancellationToken.None);
+
+        _viewModel = new MediaViewModel(
+            _coordinator, provider, _artworkCache, mediaOptions, _dispatcher, audio,
+            _lyricsProvider, _lyricsCache, _lyricsOffsets);
         _viewModel.CommandInvoked += OnCommandInvoked;
+        _viewModel.LyricsEnableRequested += OnLyricsEnableRequested;
+        _viewModel.UpdateLyricsSettings(current.Lyrics.Provider, current.Lyrics.OffsetMs);
 
         _activeMonitor = PickDefaultMonitor();
         _drawer = new DrawerWindow(this, _viewModel);
@@ -180,11 +218,61 @@ public sealed class DrawerHost
             merged[pair.Key] = pair.Value;
         }
 
-        return fromSettings with { PlayerAliases = merged };
+        // Settings rules take precedence (matched first); the built-in defaults are appended so a source the user has
+        // not customised still gets its default rule. See _docs/10-enhancement-plan.md (E1).
+        var rules = new List<SourceRule>(fromSettings.SourceRules);
+        foreach (SourceRule def in SourceRule.Defaults)
+        {
+            if (!rules.Exists(r => string.Equals(r.Match, def.Match, StringComparison.Ordinal)))
+            {
+                rules.Add(def);
+            }
+        }
+
+        return fromSettings with { PlayerAliases = merged, SourceRules = rules };
     }
 
     /// <summary>Set on construction so the tray menu can reach <see cref="ShowInspector"/>.</summary>
     public static DrawerHost? Instance { get; private set; }
+
+    /// <summary>The persisted record of sources ever seen, for the settings Sources page.</summary>
+    public SourceRegistry Sources => _sources;
+
+    /// <summary>The Last.fm runtime service, for the settings Last.fm page and the love controls.</summary>
+    public LastFmService LastFm => _lastFm;
+
+    private void OnCandidatesChangedForRegistry(object? sender, EventArgs e) =>
+        _dispatcher.TryEnqueue(RecordSeenSources);
+
+    private void RecordSeenSources()
+    {
+        IReadOnlyList<IMediaSession> candidates = _coordinator.Candidates;
+        IReadOnlyDictionary<string, MusicVerdict> verdicts = _coordinator.Verdicts;
+        bool changed = false;
+        foreach (IMediaSession candidate in candidates)
+        {
+            MediaSnapshot snapshot = candidate.Current;
+            string verdict = verdicts.TryGetValue(candidate.Id, out MusicVerdict v) ? v.Reason : "unknown";
+            changed |= _sources.Record(snapshot.SourceAppId, snapshot.SourceDisplayName, verdict);
+        }
+
+        if (changed)
+        {
+            _sources.Save();
+        }
+    }
+
+    /// <summary>Media-key route: play/pause the active session (E2 <c>media.captureMediaKeys</c>).</summary>
+    public void MediaPlayPause() => _ = _viewModel.PlayPauseAsync();
+
+    /// <summary>Media-key route: skip to the next track on the active session.</summary>
+    public void MediaNext() => _ = _viewModel.NextAsync();
+
+    /// <summary>Media-key route: skip to the previous track on the active session.</summary>
+    public void MediaPrevious() => _ = _viewModel.PreviousAsync();
+
+    /// <summary>Media-key route: stop maps to play/pause (no dedicated stop command is advertised).</summary>
+    public void MediaStop() => _ = _viewModel.PlayPauseAsync();
 
     internal DrawerController Controller => _controller;
 
@@ -247,6 +335,10 @@ public sealed class DrawerHost
         _settings.Changed -= OnSettingsChanged;
         _controller.Transition -= OnTransition;
         _viewModel.CommandInvoked -= OnCommandInvoked;
+        _viewModel.LyricsEnableRequested -= OnLyricsEnableRequested;
+        _coordinator.CandidatesChanged -= OnCandidatesChangedForRegistry;
+        _sources.Save();
+        _lastFm.Dispose();
         _viewModel.Dispose();
         _coordinator.Dispose();
         _artworkCache.Dispose();
@@ -341,7 +433,12 @@ public sealed class DrawerHost
         ShellLog.Write(
             $"media: activeId={active?.Id ?? "-"} reason={_coordinator.Reason} " +
             $"state={active?.Current.State.ToString() ?? "-"} hasMetadata={active?.Current.HasMetadata.ToString() ?? "-"} " +
-            $"candidates={_coordinator.Candidates.Count}");
+            $"candidates={_coordinator.Candidates.Count} " +
+            $"lyricsState={_viewModel.LyricsState} lyricsLines={_viewModel.LyricsLines.Count} lyricsSynced={_viewModel.LyricsSynced}");
+
+        ShellLog.Write(
+            $"lastfm: enabled={_lastFm.Enabled} signedIn={_lastFm.IsSignedIn} hasKey={_lastFm.HasApiKey} " +
+            $"buildKey={LastFmKeys.HasBuildKey}");
     }
 
     private MonitorInfo MonitorAtCursor()
@@ -631,6 +728,19 @@ public sealed class DrawerHost
         };
     }
 
+    private void OnLyricsEnableRequested(object? sender, EventArgs e)
+    {
+        global::WinDots.Core.Settings.Settings current = _settings.Current;
+        if (current.Lyrics.Provider == global::WinDots.Core.Settings.LyricsProvider.Lrclib)
+        {
+            return;
+        }
+
+        var updated = current with { Lyrics = current.Lyrics with { Provider = global::WinDots.Core.Settings.LyricsProvider.Lrclib } };
+        ShellLog.Write("lyrics: enabling LRCLIB from panel request");
+        _ = _settings.SaveAsync(updated, CancellationToken.None);
+    }
+
     private void OnCommandInvoked(object? sender, EventArgs e)
     {
         if (_hideAfterCommand && _drawerShown && _controller.State == DrawerState.Open)
@@ -688,6 +798,8 @@ public sealed class DrawerHost
         _viewModel.SetPaletteSettings(s.Appearance.PaletteSource, s.Appearance.FixedAccent);
         ApplyAppearanceEffects(s.Appearance);
         _coordinator.UpdateOptions(BuildMediaOptions(s));
+        _viewModel.UpdateLyricsSettings(s.Lyrics.Provider, s.Lyrics.OffsetMs);
+        _lastFm.ApplySettings(s.LastFm);
         _drawer.SetAlwaysOnTop(s.Drawer.AlwaysOnTop);
         ResetAutoHide();
 

@@ -29,6 +29,46 @@ public class SettingsSerializationTests
     }
 
     [Fact]
+    public void DefaultSourceRulesRoundTrip()
+    {
+        var original = new WinDots.Core.Settings.Settings();
+        string json = JsonSerializer.Serialize(original, WinDots.Core.Settings.Settings.JsonOptions);
+        var restored = JsonSerializer.Deserialize<WinDots.Core.Settings.Settings>(json, WinDots.Core.Settings.Settings.JsonOptions)!;
+
+        Assert.Equal(WinDots.Core.Media.SourceMode.Tracked, restored.Media.SourceMode);
+        Assert.False(restored.Media.CaptureMediaKeys);
+        Assert.Equal(original.Media.SourceRules.Count, restored.Media.SourceRules.Count);
+        Assert.Equal(original.Media.SourceRules[0], restored.Media.SourceRules[0]);
+    }
+
+    [Fact]
+    public void CustomSourceRulesRoundTrip()
+    {
+        var settings = new WinDots.Core.Settings.Settings
+        {
+            Media = new MediaSettings
+            {
+                SourceMode = WinDots.Core.Media.SourceMode.All,
+                CaptureMediaKeys = true,
+                SourceRules = new[]
+                {
+                    new WinDots.Core.Media.SourceRule("com.example.player", WinDots.Core.Media.SourceRuleMode.Never),
+                },
+            },
+        };
+
+        string json = JsonSerializer.Serialize(settings, WinDots.Core.Settings.Settings.JsonOptions);
+        Assert.Contains("\"sourceMode\": \"all\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"mode\": \"never\"", json, StringComparison.Ordinal);
+
+        var restored = JsonSerializer.Deserialize<WinDots.Core.Settings.Settings>(json, WinDots.Core.Settings.Settings.JsonOptions)!;
+        Assert.True(restored.Media.CaptureMediaKeys);
+        Assert.Single(restored.Media.SourceRules);
+        Assert.Equal("com.example.player", restored.Media.SourceRules[0].Match);
+        Assert.Equal(WinDots.Core.Media.SourceRuleMode.Never, restored.Media.SourceRules[0].Mode);
+    }
+
+    [Fact]
     public void EnumsSerializeAsCamelCaseStrings()
     {
         var settings = new WinDots.Core.Settings.Settings

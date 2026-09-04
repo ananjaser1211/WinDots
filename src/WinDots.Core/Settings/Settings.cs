@@ -30,6 +30,9 @@ public sealed record Settings
 
     public LyricsSettings Lyrics { get; init; } = new();
 
+    [JsonPropertyName("lastfm")]
+    public LastFmSettings LastFm { get; init; } = new();
+
     public VisualiserSettings Visualiser { get; init; } = new();
 
     public WeatherSettings Weather { get; init; } = new();
@@ -97,6 +100,7 @@ public enum LogLevel
 public enum LyricsProvider
 {
     Off,
+    Lrclib,
 }
 
 public sealed record DrawerSettings
@@ -147,6 +151,15 @@ public sealed record MediaSettings
     public int SeekStepS { get; init; } = 5;
 
     public int VolumeStepPercent { get; init; } = 2;
+
+    /// <summary>Whether the coordinator surfaces only music sources (<c>tracked</c>) or every source (<c>all</c>).</summary>
+    public SourceMode SourceMode { get; init; } = SourceMode.Tracked;
+
+    /// <summary>Ordered per-source rules; user rules take precedence over the built-in defaults.</summary>
+    public IReadOnlyList<SourceRule> SourceRules { get; init; } = SourceRule.Defaults;
+
+    /// <summary>When on, the media transport keys are captured globally and routed to the active music session.</summary>
+    public bool CaptureMediaKeys { get; init; }
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement> Extra { get; init; } = new(StringComparer.Ordinal);
@@ -218,6 +231,21 @@ public sealed record LyricsSettings
     public Dictionary<string, JsonElement> Extra { get; init; } = new(StringComparer.Ordinal);
 }
 
+public sealed record LastFmSettings
+{
+    /// <summary>Master switch for the Last.fm integration. Nothing is sent while off.</summary>
+    public bool Enabled { get; init; }
+
+    /// <summary>Submit qualified plays as scrobbles.</summary>
+    public bool Scrobble { get; init; } = true;
+
+    /// <summary>Send now-playing notifications on track start.</summary>
+    public bool NowPlaying { get; init; } = true;
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement> Extra { get; init; } = new(StringComparer.Ordinal);
+}
+
 public sealed record VisualiserSettings
 {
     public bool Enabled { get; init; }
@@ -263,6 +291,8 @@ public static class SettingsExtensions
             TimelineTickMs = media.TimelineTickMs,
             AllowSharedVolume = media.AllowSharedVolume,
             VolumeStepPercent = media.VolumeStepPercent,
+            SourceMode = media.SourceMode,
+            SourceRules = media.SourceRules.ToArray(),
         };
     }
 }

@@ -16,8 +16,10 @@ using WinDots.App.Diagnostics;
 using WinDots.App.Media.Controls;
 using WinDots.Core.Contracts;
 using WinDots.Core.Design;
+using WinDots.Core.Lyrics;
 using WinDots.Core.Media;
 using WinDots.Core.Settings;
+using CoreLyricsProvider = WinDots.Core.Settings.LyricsProvider;
 
 namespace WinDots.App.Media;
 
@@ -68,6 +70,18 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
     private string _volumeExplanation = "No player is active.";
     private int _volumeLevel;
     private bool _isMuted;
+
+    // --- Lyrics (E3) ---
+    private readonly ILyricsProvider? _lyricsProvider;
+    private readonly LyricsCache? _lyricsCache;
+    private readonly LyricsOffsetStore? _offsetStore;
+    private CoreLyricsProvider _lyricsMode = CoreLyricsProvider.Off;
+    private int _defaultOffsetMs;
+    private string? _lyricsTrackKey;
+    private LyricsQuery? _lyricsQuery;
+    private CancellationTokenSource? _lyricsCts;
+    private IReadOnlyList<LyricsLine> _lyricsModelLines = Array.Empty<LyricsLine>();
+    private int _lyricsOffsetMs;
 
     private IMediaSession? _activeSession;
     private Timeline _timeline = Timeline.Empty;
@@ -120,13 +134,23 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
     private string _statusText = string.Empty;
     private bool _isDrawerOpen;
 
+    // Lyrics backing fields.
+    private IReadOnlyList<string> _lyricsLines = Array.Empty<string>();
+    private int _lyricsCurrentIndex = -1;
+    private bool _lyricsSynced;
+    private string _lyricsAttribution = string.Empty;
+    private LyricsState _lyricsState = LyricsState.Off;
+
     public MediaViewModel(
         ISessionCoordinator coordinator,
         IMediaSessionProvider provider,
         IArtworkCache artworkCache,
         MediaOptions options,
         DispatcherQueue dispatcher,
-        IAudioSessionProvider? audio = null)
+        IAudioSessionProvider? audio = null,
+        ILyricsProvider? lyricsProvider = null,
+        LyricsCache? lyricsCache = null,
+        LyricsOffsetStore? offsetStore = null)
     {
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
@@ -134,6 +158,9 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _audio = audio;
+        _lyricsProvider = lyricsProvider;
+        _lyricsCache = lyricsCache;
+        _offsetStore = offsetStore;
 
         _volumeTimer = _dispatcher.CreateTimer();
         _volumeTimer.Interval = VolumeDebounce;
@@ -156,6 +183,7 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         _coordinator.ActiveChanged += OnActiveChanged;
         _coordinator.CandidatesChanged += OnCandidatesChanged;
+        _coordinator.ShowAllSourcesChanged += OnShowAllSourcesChanged;
 
         _activeSession = _coordinator.Active;
         if (_activeSession is not null)
@@ -446,6 +474,202 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    // --- Lyrics (E3) ---
+
+    /// <summary>The current lyric lines' text (synced or plain). Empty when there are none.</summary>
+    public IReadOnlyList<string> LyricsLines { get => _lyricsLines; private set => Set(ref _lyricsLines, value); }
+
+    /// <summary>The index into <see cref="LyricsLines"/> of the current synced line, or -1 (before the first / unsynced).</summary>
+    public int LyricsCurrentIndex { get => _lyricsCurrentIndex; private set => Set(ref _lyricsCurrentIndex, value); }
+
+    /// <summary>True when the current lyrics carry timestamps (auto-scroll applies); false for plain lyrics.</summary>
+    public bool LyricsSynced { get => _lyricsSynced; private set => Set(ref _lyricsSynced, value); }
+
+    /// <summary>The provider attribution line shown under the lyrics (e.g. "Lyrics from LRCLIB").</summary>
+    public string LyricsAttribution { get => _lyricsAttribution; private set => Set(ref _lyricsAttribution, value); }
+
+    /// <summary>The lyrics slot's state (off / loading / found / not-found).</summary>
+    public LyricsState LyricsState { get => _lyricsState; private set => Set(ref _lyricsState, value); }
+
+    /// <summary>Raised when the user asks to enable lyrics from the panel; the host flips <c>lyrics.provider</c>.</summary>
+    public event EventHandler? LyricsEnableRequested;
+
+    /// <summary>Panel action: request that lyrics be enabled (persisted by the host).</summary>
+    public void RequestEnableLyrics() => LyricsEnableRequested?.Invoke(this, EventArgs.Empty);
+
+    /// <summary>Panel action: nudge the current track's lyrics offset by the given milliseconds and re-sync.</summary>
+    public void AdjustLyricsOffset(int deltaMs)
+    {
+        _lyricsOffsetMs += deltaMs;
+        PersistOffset();
+        UpdateTimeline();
+    }
+
+    /// <summary>Panel action: clear the current track's offset back to the global default.</summary>
+    public void ResetLyricsOffset()
+    {
+        _lyricsOffsetMs = _defaultOffsetMs;
+        if (_lyricsTrackKey is not null)
+        {
+            _offsetStore?.Set(_lyricsTrackKey, 0);
+        }
+
+        UpdateTimeline();
+    }
+
+    private void PersistOffset()
+    {
+        if (_lyricsTrackKey is not null)
+        {
+            _offsetStore?.Set(_lyricsTrackKey, _lyricsOffsetMs);
+        }
+    }
+
+    /// <summary>Applies a live change to <c>lyrics.provider</c> / <c>lyrics.offsetMs</c>. Re-evaluates the current track.</summary>
+    public void UpdateLyricsSettings(CoreLyricsProvider mode, int defaultOffsetMs)
+    {
+        bool modeChanged = _lyricsMode != mode;
+        _defaultOffsetMs = defaultOffsetMs;
+        _lyricsMode = mode;
+
+        // Force a re-evaluation of the active track under the new mode.
+        _lyricsTrackKey = null;
+        RefreshLyrics();
+    }
+
+    private void RefreshLyrics()
+    {
+        IMediaSession? session = _activeSession;
+        if (session is null)
+        {
+            ClearLyrics(LyricsState.Off);
+            return;
+        }
+
+        EvaluateLyrics(session.Current);
+    }
+
+    private void EvaluateLyrics(MediaSnapshot snapshot)
+    {
+        if (_lyricsMode != CoreLyricsProvider.Lrclib || _lyricsProvider is null)
+        {
+            _lyricsTrackKey = null;
+            ClearLyrics(LyricsState.Off);
+            return;
+        }
+
+        TimeSpan? duration = snapshot.Timeline.HasDuration ? snapshot.Timeline.Duration : null;
+        var query = new LyricsQuery(snapshot.Title ?? string.Empty, snapshot.Artists, snapshot.Album, duration);
+        if (!query.IsUsable)
+        {
+            _lyricsTrackKey = null;
+            ClearLyrics(LyricsState.NotFound);
+            return;
+        }
+
+        string key = LyricsCache.NormalizeKey(query);
+        if (string.Equals(key, _lyricsTrackKey, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        // New track identity: cancel any in-flight lookup and reset the slot.
+        _lyricsCts?.Cancel();
+        _lyricsTrackKey = key;
+        _lyricsQuery = query;
+        _lyricsOffsetMs = _offsetStore?.Get(key) ?? _defaultOffsetMs;
+        _lyricsModelLines = Array.Empty<LyricsLine>();
+        LyricsLines = Array.Empty<string>();
+        LyricsCurrentIndex = -1;
+        LyricsSynced = false;
+        LyricsAttribution = string.Empty;
+        LyricsState = LyricsState.Loading;
+
+        var cts = new CancellationTokenSource();
+        _lyricsCts = cts;
+        _ = LookupLyricsAsync(query, key, cts.Token);
+    }
+
+    private async Task LookupLyricsAsync(LyricsQuery query, string key, CancellationToken ct)
+    {
+        try
+        {
+            LyricsResult? result;
+            if (_lyricsCache is not null && _lyricsCache.TryGet(query, out LyricsResult? cached))
+            {
+                result = cached;
+            }
+            else
+            {
+                result = await _lyricsProvider!.LookupAsync(query, ct).ConfigureAwait(true);
+                _lyricsCache?.Set(query, result);
+            }
+
+            if (ct.IsCancellationRequested || !string.Equals(key, _lyricsTrackKey, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            ApplyLyricsResult(result);
+        }
+        catch (OperationCanceledException)
+        {
+            // Superseded by a track change.
+        }
+        catch (Exception ex)
+        {
+            ShellLog.Write($"lyrics: lookup failed {ex.GetType().Name}");
+            if (!ct.IsCancellationRequested && string.Equals(key, _lyricsTrackKey, StringComparison.Ordinal))
+            {
+                ClearLyrics(LyricsState.NotFound);
+            }
+        }
+    }
+
+    private void ApplyLyricsResult(LyricsResult? result)
+    {
+        if (result is null || result.Lines.Count == 0)
+        {
+            ClearLyrics(LyricsState.NotFound);
+            return;
+        }
+
+        _lyricsModelLines = result.Lines;
+        var text = new string[result.Lines.Count];
+        for (int i = 0; i < result.Lines.Count; i++)
+        {
+            text[i] = result.Lines[i].Text;
+        }
+
+        LyricsLines = text;
+        LyricsSynced = result.IsSynced;
+        LyricsAttribution = string.IsNullOrEmpty(result.AttributionUrl)
+            ? string.Empty
+            : $"Lyrics from {result.Provider}";
+        LyricsState = LyricsState.Found;
+        UpdateLyricsIndex();
+    }
+
+    private void ClearLyrics(LyricsState state)
+    {
+        _lyricsModelLines = Array.Empty<LyricsLine>();
+        LyricsLines = Array.Empty<string>();
+        LyricsCurrentIndex = -1;
+        LyricsSynced = false;
+        LyricsAttribution = string.Empty;
+        LyricsState = state;
+    }
+
+    private void UpdateLyricsIndex()
+    {
+        if (!_lyricsSynced || _lyricsModelLines.Count == 0)
+        {
+            return;
+        }
+
+        LyricsCurrentIndex = LyricsSync.CurrentIndex(_lyricsModelLines, Position, TimeSpan.FromMilliseconds(_lyricsOffsetMs));
+    }
+
     // --- Commands ---
 
     public Task PlayPauseAsync() =>
@@ -492,6 +716,19 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
         await ObserveAsync("Seek", session.TrySeekAsync(target, CancellationToken.None)).ConfigureAwait(true);
     }
 
+    /// <summary>
+    /// The runtime "show every source" override, forwarded to the coordinator. Two-way bound to the chooser toggle;
+    /// turning it on reveals sources the tracked/music filter would hide (Never sources stay hidden).
+    /// </summary>
+    public bool ShowAllSources
+    {
+        get => _coordinator.ShowAllSources;
+        set => _coordinator.ShowAllSources = value;
+    }
+
+    private void OnShowAllSourcesChanged(object? sender, EventArgs e) =>
+        Marshal(() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowAllSources))));
+
     /// <summary>Pins the given session, or clears the pin (returns to automatic) when <paramref name="id"/> is null.</summary>
     public void SelectPlayer(string? id)
     {
@@ -516,6 +753,7 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         _coordinator.ActiveChanged -= OnActiveChanged;
         _coordinator.CandidatesChanged -= OnCandidatesChanged;
+        _coordinator.ShowAllSourcesChanged -= OnShowAllSourcesChanged;
         if (_activeSession is not null)
         {
             _activeSession.Updated -= OnSessionUpdated;
@@ -535,6 +773,9 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         _audioCts?.Cancel();
         _audioCts = null;
+
+        _lyricsCts?.Cancel();
+        _lyricsCts = null;
 
         CancelArtworkLoad();
     }
@@ -615,6 +856,7 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         RefreshChooserLabel();
         UpdateArtwork(session, snapshot.ArtworkKey);
+        EvaluateLyrics(snapshot);
     }
 
     private void ApplyEmptyState()
@@ -645,6 +887,10 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
         Artwork = null;
         _paletteBgra = null;
         ApplyPalette();
+
+        _lyricsCts?.Cancel();
+        _lyricsTrackKey = null;
+        ClearLyrics(_lyricsMode == CoreLyricsProvider.Lrclib ? LyricsState.NotFound : LyricsState.Off);
 
         RefreshChooserLabel();
     }
@@ -679,6 +925,7 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
         Progress = progress;
         ElapsedText = TimeFormat.Clock(displayed);
         DurationText = TimeFormat.Clock(duration);
+        UpdateLyricsIndex();
     }
 
     private TimeSpan ClampToTrack(TimeSpan value)
@@ -721,15 +968,18 @@ public sealed partial class MediaViewModel : INotifyPropertyChanged, IDisposable
         IReadOnlyList<IMediaSession> candidates = _coordinator.Candidates;
         IMediaSession? active = _coordinator.Active;
         var items = new List<PlayerChooserItem>(candidates.Count);
+        IReadOnlyDictionary<string, MusicVerdict> verdicts = _coordinator.Verdicts;
         foreach (IMediaSession candidate in candidates)
         {
             MediaSnapshot snapshot = candidate.Current;
             string label = _options.AliasFor(snapshot.SourceAppId, snapshot.SourceDisplayName);
+            string verdict = verdicts.TryGetValue(candidate.Id, out MusicVerdict v) ? v.Reason : string.Empty;
             items.Add(new PlayerChooserItem(
                 candidate.Id,
                 label,
                 StateText(snapshot.State),
-                ReferenceEquals(candidate, active)));
+                ReferenceEquals(candidate, active),
+                verdict));
         }
 
         ChooserItems = items;

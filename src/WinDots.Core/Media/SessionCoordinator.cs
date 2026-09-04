@@ -31,6 +31,9 @@ public sealed class SessionCoordinator : ISessionCoordinator
     private IMediaSession? _active;
     private SelectionReason _reason = SelectionReason.None;
     private IReadOnlyList<IMediaSession> _candidates = Array.Empty<IMediaSession>();
+    private IReadOnlyDictionary<string, MusicVerdict> _verdicts =
+        new Dictionary<string, MusicVerdict>(StringComparer.Ordinal);
+    private bool _showAllSources;
     private string? _pinnedId;
     private bool _disposed;
 
@@ -99,9 +102,49 @@ public sealed class SessionCoordinator : ISessionCoordinator
         }
     }
 
+    public IReadOnlyDictionary<string, MusicVerdict> Verdicts
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _verdicts;
+            }
+        }
+    }
+
+    public bool ShowAllSources
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _showAllSources;
+            }
+        }
+
+        set
+        {
+            lock (_gate)
+            {
+                if (_disposed || _showAllSources == value)
+                {
+                    return;
+                }
+
+                _showAllSources = value;
+            }
+
+            Evaluate();
+            ShowAllSourcesChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
     public event EventHandler? ActiveChanged;
 
     public event EventHandler? CandidatesChanged;
+
+    public event EventHandler? ShowAllSourcesChanged;
 
     public void Pin(string sessionId)
     {
@@ -168,9 +211,11 @@ public sealed class SessionCoordinator : ISessionCoordinator
             IReadOnlyList<IMediaSession> sessions = _provider.Sessions;
             IMediaSession? systemCurrent = _provider.SystemCurrent;
             DateTimeOffset now = _now();
+            bool showAll = _showAllSources || _options.SourceMode == SourceMode.All;
 
-            // Ignore filter, then rank.
+            // Ignore filter, source-rule filter (Never excluded, Auto rejected by the detector when tracking), then rank.
             List<Scored> scored = new();
+            var newVerdicts = new Dictionary<string, MusicVerdict>(StringComparer.Ordinal);
             foreach (IMediaSession session in sessions)
             {
                 if (IsIgnored(session))
@@ -178,6 +223,22 @@ public sealed class SessionCoordinator : ISessionCoordinator
                     continue;
                 }
 
+                MediaSnapshot snapshot = session.Current;
+                SourceRuleMode rule = _options.RuleFor(snapshot.SourceAppId, snapshot.SourceDisplayName);
+                if (rule == SourceRuleMode.Never)
+                {
+                    continue;
+                }
+
+                MusicVerdict verdict = MusicDetector.Score(snapshot, rule);
+
+                // Tracked mode drops Auto sources the detector rejects; Always sources are always kept.
+                if (!showAll && rule == SourceRuleMode.Auto && !verdict.IsMusic)
+                {
+                    continue;
+                }
+
+                newVerdicts[session.Id] = verdict;
                 scored.Add(Score(session, systemCurrent, now));
             }
 
@@ -219,11 +280,12 @@ public sealed class SessionCoordinator : ISessionCoordinator
             }
 
             activeChanged = !ReferenceEquals(_active, newActive) || _reason != newReason;
-            candidatesChanged = !SequenceEqual(_candidates, newCandidates);
+            candidatesChanged = !SequenceEqual(_candidates, newCandidates) || !VerdictsEqual(_verdicts, newVerdicts);
 
             _active = newActive;
             _reason = newReason;
             _candidates = newCandidates;
+            _verdicts = newVerdicts;
         }
 
         if (candidatesChanged)
@@ -389,6 +451,26 @@ public sealed class SessionCoordinator : ISessionCoordinator
         for (int i = 0; i < a.Count; i++)
         {
             if (!ReferenceEquals(a[i], b[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool VerdictsEqual(
+        IReadOnlyDictionary<string, MusicVerdict> a,
+        IReadOnlyDictionary<string, MusicVerdict> b)
+    {
+        if (a.Count != b.Count)
+        {
+            return false;
+        }
+
+        foreach (KeyValuePair<string, MusicVerdict> pair in a)
+        {
+            if (!b.TryGetValue(pair.Key, out MusicVerdict other) || other != pair.Value)
             {
                 return false;
             }

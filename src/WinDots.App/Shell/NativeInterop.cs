@@ -41,6 +41,12 @@ internal static class NativeInterop
     public const uint MOD_NOREPEAT = 0x4000;
     public const uint VK_M = 0x4D;
 
+    // Media transport virtual-keys (E2 media.captureMediaKeys).
+    public const uint VK_MEDIA_NEXT_TRACK = 0xB0;
+    public const uint VK_MEDIA_PREV_TRACK = 0xB1;
+    public const uint VK_MEDIA_STOP = 0xB2;
+    public const uint VK_MEDIA_PLAY_PAUSE = 0xB3;
+
     // Window messages we handle on the hidden message window.
     public const uint WM_NULL = 0x0000;
     public const uint WM_DESTROY = 0x0002;

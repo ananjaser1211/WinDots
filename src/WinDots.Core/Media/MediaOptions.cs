@@ -28,6 +28,29 @@ public sealed record MediaOptions
     /// <summary>Volume nudge, in percent, for the scroll wheel and arrow keys.</summary>
     public int VolumeStepPercent { get; init; } = 2;
 
+    /// <summary>Whether the coordinator surfaces only music sources (<see cref="SourceMode.Tracked"/>) or all of them.</summary>
+    public SourceMode SourceMode { get; init; } = SourceMode.Tracked;
+
+    /// <summary>The ordered source rules; the first whose match applies wins in <see cref="RuleFor"/>.</summary>
+    public IReadOnlyList<SourceRule> SourceRules { get; init; } = Array.Empty<SourceRule>();
+
+    /// <summary>
+    /// Resolves the <see cref="SourceRuleMode"/> for a source by the first matching rule in <see cref="SourceRules"/>,
+    /// falling back to <see cref="SourceRuleMode.Auto"/> when none match (the detector then decides).
+    /// </summary>
+    public SourceRuleMode RuleFor(string sourceAppId, string displayName)
+    {
+        foreach (SourceRule rule in SourceRules)
+        {
+            if (Matches(rule.Match, sourceAppId, displayName))
+            {
+                return rule.Mode;
+            }
+        }
+
+        return SourceRuleMode.Auto;
+    }
+
     /// <summary>
     /// Resolves the display name for a player. Returns the matching alias when a key matches the AUMID exactly
     /// or is a case-insensitive substring of the AUMID or display name; otherwise returns <paramref name="displayName"/>.

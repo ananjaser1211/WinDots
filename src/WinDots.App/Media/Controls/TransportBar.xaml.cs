@@ -146,9 +146,22 @@ public sealed partial class TransportBar : UserControl
 
         Brush accent = AccentBrush ?? ResolveBrush("WdAccentBrush");
         Brush onSurface = ResolveBrush("WdOnSurfaceBrush");
-        ShuffleGlyph.Foreground = IsShuffleOn == true ? accent : onSurface;
+
+        bool shuffleActive = IsShuffleOn == true;
+        ShuffleGlyph.Foreground = shuffleActive ? accent : onSurface;
+        ShuffleDot.Visibility = shuffleActive ? Visibility.Visible : Visibility.Collapsed;
+        ToolTipService.SetToolTip(ShuffleButton, shuffleActive ? "Shuffle: on" : "Shuffle: off");
+
         RepeatMode? repeat = RepeatMode;
-        RepeatGlyph.Foreground = repeat is not null and not WinDots.Core.Media.RepeatMode.None ? accent : onSurface;
+        bool repeatActive = repeat is not null and not WinDots.Core.Media.RepeatMode.None;
+        RepeatGlyph.Foreground = repeatActive ? accent : onSurface;
+        RepeatDot.Visibility = repeatActive ? Visibility.Visible : Visibility.Collapsed;
+        ToolTipService.SetToolTip(RepeatButton, repeat switch
+        {
+            WinDots.Core.Media.RepeatMode.Track => "Repeat: track",
+            WinDots.Core.Media.RepeatMode.List => "Repeat: list",
+            _ => "Repeat: off",
+        });
         RepeatGlyph.Glyph = repeat == WinDots.Core.Media.RepeatMode.Track ? "" : "";
     }
 

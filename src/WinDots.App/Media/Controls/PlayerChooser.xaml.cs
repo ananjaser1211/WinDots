@@ -13,7 +13,8 @@ namespace WinDots.App.Media.Controls;
 /// <param name="Label">Display name shown in the menu.</param>
 /// <param name="StateText">Secondary state text (e.g. "Playing").</param>
 /// <param name="IsActive">Whether this is the currently active player.</param>
-public sealed record PlayerChooserItem(string Id, string Label, string StateText, bool IsActive);
+/// <param name="Verdict">The music detector's verdict caption (e.g. "music" or "not music: video title").</param>
+public sealed record PlayerChooserItem(string Id, string Label, string StateText, bool IsActive, string Verdict = "");
 
 /// <summary>
 /// A pill button showing the active player with a chevron that opens a menu of the available players plus an
@@ -38,6 +39,12 @@ public sealed partial class PlayerChooser : UserControl
         typeof(Brush),
         typeof(PlayerChooser),
         new PropertyMetadata(null));
+
+    public static readonly DependencyProperty ShowAllSourcesProperty = DependencyProperty.Register(
+        nameof(ShowAllSources),
+        typeof(bool),
+        typeof(PlayerChooser),
+        new PropertyMetadata(false));
 
     public PlayerChooser()
     {
@@ -69,6 +76,13 @@ public sealed partial class PlayerChooser : UserControl
         set => SetValue(ActiveLabelProperty, value);
     }
 
+    /// <summary>Two-way bound to the coordinator's runtime "show every source" override (the menu toggle).</summary>
+    public bool ShowAllSources
+    {
+        get => (bool)GetValue(ShowAllSourcesProperty);
+        set => SetValue(ShowAllSourcesProperty, value);
+    }
+
     /// <summary>Opens the player menu (keyboard "P" shortcut).</summary>
     public void OpenFlyout() => Menu.ShowAt(ChooserButton);
 
@@ -93,6 +107,12 @@ public sealed partial class PlayerChooser : UserControl
                     Tag = item.Id,
                     Icon = item.IsActive ? new FontIcon { Glyph = "" } : null,
                 };
+                if (!string.IsNullOrEmpty(item.Verdict))
+                {
+                    ToolTipService.SetToolTip(menuItem, item.Verdict);
+                    Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(menuItem, item.Verdict);
+                }
+
                 menuItem.Click += OnPlayerItemClick;
                 Menu.Items.Add(menuItem);
             }
@@ -103,6 +123,25 @@ public sealed partial class PlayerChooser : UserControl
         var automatic = new MenuFlyoutItem { Text = "Automatic" };
         automatic.Click += OnAutomaticClick;
         Menu.Items.Add(automatic);
+
+        Menu.Items.Add(new MenuFlyoutSeparator());
+
+        var showAll = new ToggleMenuFlyoutItem
+        {
+            Text = "Show all sources",
+            IsChecked = ShowAllSources,
+        };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(showAll, "Show all sources");
+        showAll.Click += OnShowAllToggled;
+        Menu.Items.Add(showAll);
+    }
+
+    private void OnShowAllToggled(object sender, RoutedEventArgs e)
+    {
+        if (sender is ToggleMenuFlyoutItem toggle)
+        {
+            ShowAllSources = toggle.IsChecked;
+        }
     }
 
     private void OnPlayerItemClick(object sender, RoutedEventArgs e)

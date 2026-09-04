@@ -65,6 +65,25 @@ Start-Process "shell:AppsFolder\$((Get-AppxPackage -Name WinDots.Dev).PackageFam
 
 Alternatively open `WinDots.sln` in VS 2022, set `WinDots.App` as startup, and press F5. Uninstall the dev package with `Get-AppxPackage -Name WinDots.Dev | Remove-AppxPackage`.
 
+## Build-time provider secrets
+
+Provider app keys are never committed. Official builds embed them from the build environment; source checkouts build fine without them (the app shows an in-app "Create a key" helper instead). Currently used:
+
+| Environment variable / MSBuild property | Consumed by | When unset |
+|---|---|---|
+| `WinDotsLastFmApiKey` | Embedded as `[assembly: AssemblyMetadata("WinDotsLastFmApiKey", ...)]` in `WinDots.App`; read at runtime by `LastFmKeys` | Empty; settings shows "Create a key" (paste + validate against `auth.getToken`) |
+| `WinDotsLastFmSecret` | Same, as `WinDotsLastFmSecret` | Empty |
+
+MSBuild imports environment variables as properties, so setting the variable before the build is enough:
+
+```powershell
+$env:WinDotsLastFmApiKey = "<key>"
+$env:WinDotsLastFmSecret = "<secret>"
+dotnet build WinDots.sln -c Release -p:Platform=x64
+```
+
+Keys entered through the in-app helper, and the session key + username after sign-in, are stored in Windows Credential Manager (resource `WinDots`) via `ISecretStore`, never on disk in the package or in `settings.json`.
+
 ## Environment hygiene
 
 - Never commit `bin/`, `obj/`, `.vs/`, `*.pfx`, `AppPackages/` (already in `.gitignore`).

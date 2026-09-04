@@ -11,7 +11,8 @@ File: `%LOCALAPPDATA%\WinDots\settings.json`. UTF-8, camelCase, written atomical
   "monitors": {},
   "privacy": {},
   "diagnostics": {},
-  "lyrics": {},
+  "lyrics": { "provider": "Off", "offsetMs": 0 },
+  "lastfm": { "enabled": false, "scrobble": true, "nowPlaying": true },
   "visualiser": {},
   "weather": {},
   "performance": {}
@@ -46,6 +47,11 @@ File: `%LOCALAPPDATA%\WinDots\settings.json`. UTF-8, camelCase, written atomical
 | `allowSharedVolume` | bool | `false` | Show volume for `Medium` matches |
 | `seekStepS` | int | `5` | Arrow-key seek |
 | `volumeStepPercent` | int | `2` | |
+| `sourceMode` | `"tracked"`, `"all"` | `"tracked"` | `tracked` shows only music (Always rules and Auto rules the detector accepts); `all` shows every source except `never` |
+| `sourceRules` | `{ match, mode }[]` | built-in defaults | `match` is an AUMID or case-insensitive substring; `mode` is `always` \| `auto` \| `never`. User rules take precedence; the built-ins (Spotify/Apple Music/Amazon Music/Tidal/Deezer/MusicBee/foobar2000/YouTube Music → `always`; Chrome/Edge/Firefox/Brave/Media Player → `auto`; Teams/Zoom/Discord/VLC/mpv/Steam → `never`) are appended as fallback |
+| `captureMediaKeys` | bool | `false` | Capture Play/Pause, Next, Previous, Stop as global hotkeys and route them to the active music session. Opt-in because it overrides system routing |
+
+Sources seen at runtime are recorded (app id, display name, last-seen time, last verdict) in `LocalState\sources.json`, bounded to 200 entries, and drive the settings Sources page. This file is not part of `settings.json`.
 
 ## `appearance`
 
@@ -83,12 +89,29 @@ File: `%LOCALAPPDATA%\WinDots\settings.json`. UTF-8, camelCase, written atomical
 | `logLevel` | `"warning"`, `"info"`, `"debug"` | `"warning"` |
 | `includeMediaText` | bool | `false` |
 
+## `lyrics`
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `provider` | `"Off"`, `"Lrclib"` | `"Off"` | `Off` sends nothing to the network. `Lrclib` looks up lyrics from lrclib.net (keyless) using the track title, artist, album, and duration over HTTPS. See `_docs/privacy.md`. |
+| `offsetMs` | int | `0` | Default synchronisation offset in milliseconds (positive advances lines earlier). Per-track overrides are stored separately in `LocalState\lyrics-offsets.json`, not in settings. |
+
+Fetched lyrics are cached for 30 days in `LocalState\cache\lyrics`, keyed by a SHA-256 of the normalised query; both found and not-found answers are cached so a track is queried at most once.
+
+## `lastfm`
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `enabled` | bool | `false` | Master switch. Nothing is sent while off or signed out. |
+| `scrobble` | bool | `true` | Submit qualified plays (50 % or 4 min, tracks over 30 s) as scrobbles. |
+| `nowPlaying` | bool | `true` | Send a now-playing notification on track start. |
+
+The JSON section key is `lastfm`. Credentials (API key/secret when the build has none, and the session key + username after sign-in) are stored in Windows Credential Manager under the `WinDots` resource via `ISecretStore`, never in `settings.json`. Pending scrobbles are queued in `LocalState\scrobble-queue.json` (bounded to 500, idempotent by track identity + timestamp, retried with exponential backoff); this file is not part of `settings.json`. See `_docs/10-enhancement-plan.md` (E4), `_docs/privacy.md`, and `_docs/09-dev-environment.md` (build-time key).
+
 ## Later phases (present with defaults, ignored until the phase ships)
 
 | Section | Key | Default |
 |---|---|---|
-| `lyrics` | `provider` | `"Off"` |
-| `lyrics` | `offsetMs` | `0` |
 | `visualiser` | `enabled` | `false` |
 | `visualiser` | `bars` | `60` |
 | `weather` | `enabled` | `false` |

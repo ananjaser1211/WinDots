@@ -24,6 +24,9 @@
             <muxc:NavigationView.MenuItems>
                 <muxc:NavigationViewItem Content="Drawer" Tag="Drawer" IsSelected="True" />
                 <muxc:NavigationViewItem Content="Media" Tag="Media" />
+                <muxc:NavigationViewItem Content="Sources" Tag="Sources" />
+                <muxc:NavigationViewItem Content="Lyrics" Tag="Lyrics" />
+                <muxc:NavigationViewItem Content="Last.fm" Tag="LastFm" />
                 <muxc:NavigationViewItem Content="Appearance" Tag="Appearance" />
                 <muxc:NavigationViewItem Content="Monitors" Tag="Monitors" />
                 <muxc:NavigationViewItem Content="Privacy" Tag="Privacy" />
@@ -62,6 +65,83 @@
                             <TextBlock Text="Example: Spotify.exe=Spotify" Style="{StaticResource CaptionTextBlockStyle}" />
                         </StackPanel>
                         <muxc:NumberBox x:Name="TimelineTick" Header="Timeline tick (ms)" SpinButtonPlacementMode="Inline" Minimum="50" Maximum="5000" AutomationProperties.Name="Timeline tick milliseconds" />
+                        <ComboBox x:Name="SourceMode" Header="Show sources" AutomationProperties.Name="Source mode">
+                            <ComboBoxItem Content="Tracked (music only)" />
+                            <ComboBoxItem Content="All sources" />
+                        </ComboBox>
+                        <StackPanel Spacing="4">
+                            <ToggleSwitch x:Name="CaptureMediaKeys" Header="Capture media keys" AutomationProperties.Name="Capture media keys" />
+                            <TextBlock Text="Route Play/Pause, Next, Previous, and Stop to the active music session. This overrides Windows' system routing." Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- Sources -->
+                    <StackPanel x:Name="SourcesSection" Spacing="16" Visibility="Collapsed">
+                        <TextBlock Text="Sources" Style="{StaticResource TitleTextBlockStyle}" />
+                        <TextBlock Text="Every media source WinDots has seen. Set each to Always show, Auto (let the detector decide), or Never." Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" />
+                        <StackPanel x:Name="SourcesList" Spacing="12" />
+                        <TextBlock x:Name="SourcesEmpty" Text="No sources seen yet. Play something and reopen settings." Style="{StaticResource CaptionTextBlockStyle}" Visibility="Collapsed" />
+                    </StackPanel>
+
+                    <!-- Lyrics -->
+                    <StackPanel x:Name="LyricsSection" Spacing="16" Visibility="Collapsed">
+                        <TextBlock Text="Lyrics" Style="{StaticResource TitleTextBlockStyle}" />
+                        <ComboBox x:Name="LyricsProviderBox" Header="Lyrics provider" AutomationProperties.Name="Lyrics provider">
+                            <ComboBoxItem Content="Off" />
+                            <ComboBoxItem Content="LRCLIB" />
+                        </ComboBox>
+                        <TextBlock
+                            Text="When set to LRCLIB, WinDots sends the current track's title, artist, album, and duration to lrclib.net over HTTPS to fetch lyrics. Nothing is sent while lyrics are Off."
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            TextWrapping="Wrap" />
+                        <muxc:NumberBox x:Name="LyricsOffset" Header="Default sync offset (ms)" SpinButtonPlacementMode="Inline" SmallChange="100" Minimum="-10000" Maximum="10000" AutomationProperties.Name="Default lyrics offset milliseconds" />
+                    </StackPanel>
+
+                    <!-- Last.fm -->
+                    <StackPanel x:Name="LastFmSection" Spacing="16" Visibility="Collapsed">
+                        <TextBlock Text="Last.fm" Style="{StaticResource TitleTextBlockStyle}" />
+                        <StackPanel Spacing="4">
+                            <ToggleSwitch x:Name="LastFmEnabled" Header="Enabled" AutomationProperties.Name="Last.fm enabled" />
+                            <TextBlock Text="When enabled and signed in, WinDots sends the current track's artist, title, album, and duration to Last.fm for now-playing and scrobbles. Nothing is sent while off or signed out." Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="LastFmScrobble" Header="Scrobble played tracks" AutomationProperties.Name="Scrobble played tracks" />
+                        <ToggleSwitch x:Name="LastFmNowPlaying" Header="Send now-playing" AutomationProperties.Name="Send now playing" />
+
+                        <!-- Create a key (shown only when the build has no embedded key and none is stored) -->
+                        <StackPanel x:Name="LastFmKeyPanel" Spacing="8" Visibility="Collapsed" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="4" Padding="12">
+                            <TextBlock Text="This build has no Last.fm application key. Create one, then paste the key and secret here." Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" />
+                            <Button x:Name="LastFmCreateKey" Content="Create a key" Click="OnLastFmCreateKey" AutomationProperties.Name="Create a Last.fm API key" />
+                            <TextBox x:Name="LastFmApiKey" Header="API key" AutomationProperties.Name="Last.fm API key" />
+                            <PasswordBox x:Name="LastFmApiSecret" Header="Shared secret" AutomationProperties.Name="Last.fm shared secret" />
+                            <Button x:Name="LastFmValidate" Content="Validate and save key" Click="OnLastFmValidateKey" AutomationProperties.Name="Validate and save key" />
+                        </StackPanel>
+
+                        <!-- Signed-out (key present) -->
+                        <StackPanel x:Name="LastFmSignInPanel" Spacing="8" Visibility="Collapsed">
+                            <Button x:Name="LastFmSignIn" Content="Sign in with Last.fm" Style="{StaticResource AccentButtonStyle}" Click="OnLastFmSignIn" AutomationProperties.Name="Sign in with Last.fm" />
+                            <StackPanel x:Name="LastFmSignInProgress" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
+                                <muxc:ProgressRing IsActive="True" Width="20" Height="20" />
+                                <TextBlock Text="Waiting for you to authorise WinDots in the browser…" VerticalAlignment="Center" Style="{StaticResource CaptionTextBlockStyle}" />
+                                <Button x:Name="LastFmCancelSignIn" Content="Cancel" Click="OnLastFmCancelSignIn" AutomationProperties.Name="Cancel sign in" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- Signed-in -->
+                        <StackPanel x:Name="LastFmSignedInPanel" Spacing="12" Visibility="Collapsed">
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <muxc:PersonPicture x:Name="LastFmAvatar" Width="48" Height="48" AutomationProperties.Name="Last.fm avatar" />
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock x:Name="LastFmUserName" Style="{StaticResource SubtitleTextBlockStyle}" />
+                                    <TextBlock Text="Signed in" Style="{StaticResource CaptionTextBlockStyle}" />
+                                </StackPanel>
+                            </StackPanel>
+                            <Button x:Name="LastFmSignOut" Content="Sign out" Click="OnLastFmSignOut" AutomationProperties.Name="Sign out of Last.fm" />
+                            <TextBlock Text="Recent scrobbles" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                            <StackPanel x:Name="LastFmRecent" Spacing="6" />
+                            <TextBlock x:Name="LastFmRecentEmpty" Text="No recent tracks." Style="{StaticResource CaptionTextBlockStyle}" Visibility="Collapsed" />
+                        </StackPanel>
+
+                        <TextBlock x:Name="LastFmStatus" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" />
                     </StackPanel>
 
                     <!-- Appearance -->

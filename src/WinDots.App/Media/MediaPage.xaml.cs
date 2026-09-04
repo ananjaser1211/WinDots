@@ -6,7 +6,11 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Shapes;
+using System.Threading;
+using WinDots.App.LastFm;
 using WinDots.App.Media.Controls;
+using WinDots.App.Shell;
+using WinDots.Core.Scrobbling;
 
 namespace WinDots.App.Media;
 
@@ -85,6 +89,7 @@ public sealed partial class MediaPage : UserControl
 
         ProgressRing.HighContrast = highContrast;
         Artwork.HighContrast = highContrast;
+        Lyrics.SetReduceMotion(reducedMotion || highContrast);
 
         bool motionAllowed = !reducedMotion && !highContrast;
         Artwork.SetReduceMotion(reducedMotion || highContrast);
@@ -201,6 +206,60 @@ public sealed partial class MediaPage : UserControl
         _viewModel = viewModel;
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         Bindings.Update();
+        HookLastFm();
+    }
+
+    // --- Last.fm love button (E4) ---
+
+    private LastFmService? _lastFm;
+
+    private void HookLastFm()
+    {
+        if (_lastFm is not null)
+        {
+            return;
+        }
+
+        _lastFm = DrawerHost.Instance?.LastFm;
+        if (_lastFm is not null)
+        {
+            _lastFm.StateChanged += (_, _) => DispatcherQueue?.TryEnqueue(RefreshLoveButton);
+        }
+
+        RefreshLoveButton();
+    }
+
+    private void RefreshLoveButton()
+    {
+        LastFmService? svc = _lastFm;
+        TrackIdentity? id = svc?.CurrentTrack();
+        bool show = svc is { IsSignedIn: true } && id is not null;
+        LoveButton.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        if (show)
+        {
+            bool loved = svc!.IsLoved(id!);
+            LoveButton.IsChecked = loved;
+            LoveIcon.Glyph = loved ? "" : "";
+        }
+    }
+
+    private async void OnLoveClicked(object sender, RoutedEventArgs e)
+    {
+        LastFmService? svc = _lastFm;
+        TrackIdentity? id = svc?.CurrentTrack();
+        if (svc is null || id is null)
+        {
+            return;
+        }
+
+        bool want = LoveButton.IsChecked == true;
+        bool ok = await svc.SetLovedAsync(id, want, CancellationToken.None);
+        if (!ok)
+        {
+            LoveButton.IsChecked = !want;
+        }
+
+        RefreshLoveButton();
     }
 
     // Announces play/pause transitions through the hidden Polite live region so Narrator speaks the new state even
@@ -312,6 +371,14 @@ public sealed partial class MediaPage : UserControl
     private void OnLyricsSettings(object? sender, EventArgs e)
     {
     }
+
+    private void OnLyricsEnable(object? sender, EventArgs e) => ViewModel.RequestEnableLyrics();
+
+    private void OnLyricsOffsetIncrease(object? sender, EventArgs e) => ViewModel.AdjustLyricsOffset(500);
+
+    private void OnLyricsOffsetDecrease(object? sender, EventArgs e) => ViewModel.AdjustLyricsOffset(-500);
+
+    private void OnLyricsOffsetReset(object? sender, EventArgs e) => ViewModel.ResetLyricsOffset();
 
     // --- Keyboard map (_docs/03-ux-interaction-spec.md) ---
 

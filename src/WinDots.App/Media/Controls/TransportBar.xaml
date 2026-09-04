@@ -24,7 +24,18 @@
             Style="{StaticResource WdTonalButtonStyle}"
             automation:AutomationProperties.Name="Shuffle"
             Click="OnShuffleClick">
-            <FontIcon x:Name="ShuffleGlyph" Glyph="&#xE8B1;" FontSize="16" Foreground="{ThemeResource WdOnSurfaceBrush}" />
+            <Grid>
+                <FontIcon x:Name="ShuffleGlyph" Glyph="&#xE8B1;" FontSize="16" Foreground="{ThemeResource WdOnSurfaceBrush}" />
+                <Ellipse
+                    x:Name="ShuffleDot"
+                    Width="4"
+                    Height="4"
+                    Margin="0,0,0,2"
+                    VerticalAlignment="Bottom"
+                    HorizontalAlignment="Center"
+                    Visibility="Collapsed"
+                    Fill="{x:Bind AccentBrush, Mode=OneWay}" />
+            </Grid>
         </Button>
 
         <Button
@@ -63,7 +74,18 @@
             Style="{StaticResource WdTonalButtonStyle}"
             automation:AutomationProperties.Name="Repeat"
             Click="OnRepeatClick">
-            <FontIcon x:Name="RepeatGlyph" Glyph="&#xE8EE;" FontSize="16" Foreground="{ThemeResource WdOnSurfaceBrush}" />
+            <Grid>
+                <FontIcon x:Name="RepeatGlyph" Glyph="&#xE8EE;" FontSize="16" Foreground="{ThemeResource WdOnSurfaceBrush}" />
+                <Ellipse
+                    x:Name="RepeatDot"
+                    Width="4"
+                    Height="4"
+                    Margin="0,0,0,2"
+                    VerticalAlignment="Bottom"
+                    HorizontalAlignment="Center"
+                    Visibility="Collapsed"
+                    Fill="{x:Bind AccentBrush, Mode=OneWay}" />
+            </Grid>
         </Button>
     </StackPanel>
 </UserControl>

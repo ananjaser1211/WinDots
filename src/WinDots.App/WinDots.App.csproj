@@ -26,6 +26,17 @@
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
 
+  <!--
+    Provider app keys are build-time secrets, never committed. The release machine sets the WinDotsLastFmApiKey and
+    WinDotsLastFmSecret environment variables (MSBuild imports them as properties); they are embedded as assembly
+    metadata and read at runtime by LastFmKeys. When unset the values are empty and the app shows the "Create a key"
+    helper. See _docs/09-dev-environment.md and _docs/10-enhancement-plan.md (E4).
+  -->
+  <ItemGroup>
+    <AssemblyMetadata Include="WinDotsLastFmApiKey" Value="$(WinDotsLastFmApiKey)" />
+    <AssemblyMetadata Include="WinDotsLastFmSecret" Value="$(WinDotsLastFmSecret)" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />

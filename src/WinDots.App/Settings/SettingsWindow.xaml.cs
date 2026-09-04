@@ -8,8 +8,12 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.ApplicationModel;
 using Windows.Graphics;
+using Microsoft.UI.Xaml.Media.Imaging;
 using WinDots.App.Diagnostics;
+using WinDots.App.LastFm;
 using WinDots.Core.Contracts;
+using WinDots.Core.Media;
+using WinDots.Core.Scrobbling;
 using WinDots.Core.Settings;
 using CoreSettings = WinDots.Core.Settings.Settings;
 
@@ -30,16 +34,24 @@ public sealed partial class SettingsWindow : Window
 
     private readonly ISettingsStore _store;
     private readonly IMonitorService? _monitors;
+    private readonly SourceRegistry? _sources;
+    private readonly LastFmService? _lastFm;
     private readonly List<CheckBox> _monitorChecks = new();
+    private readonly List<SourceRow> _sourceRows = new();
+
+    private sealed record SourceRow(string SourceAppId, string DisplayName, ComboBox Combo);
 
     // Suppresses control-changed handlers while the UI is being populated from settings.
     private bool _loading;
     private StartupTask? _startupTask;
+    private CancellationTokenSource? _signInCts;
 
-    public SettingsWindow(ISettingsStore store, IMonitorService? monitors)
+    public SettingsWindow(ISettingsStore store, IMonitorService? monitors, SourceRegistry? sources = null, LastFmService? lastFm = null)
     {
         _store = store;
         _monitors = monitors;
+        _sources = sources;
+        _lastFm = lastFm;
         InitializeComponent();
 
         Title = "WinDots settings";
@@ -56,12 +68,31 @@ public sealed partial class SettingsWindow : Window
         BuildMonitorList();
         LoadFromStore(_store.Current);
         _ = InitializeStartupAsync();
-        Closed += (_, _) => { };
+
+        if (_lastFm is not null)
+        {
+            _lastFm.StateChanged += OnLastFmStateChanged;
+            RefreshLastFmUi();
+        }
+
+        Closed += OnWindowClosed;
+    }
+
+    private void OnWindowClosed(object sender, WindowEventArgs args)
+    {
+        if (_lastFm is not null)
+        {
+            _lastFm.StateChanged -= OnLastFmStateChanged;
+        }
+
+        _signInCts?.Cancel();
+        _signInCts?.Dispose();
+        _signInCts = null;
     }
 
     private static readonly string[] SectionTags =
     {
-        "Drawer", "Media", "Appearance", "Monitors", "Privacy", "Diagnostics", "Startup",
+        "Drawer", "Media", "Sources", "Lyrics", "LastFm", "Appearance", "Monitors", "Privacy", "Diagnostics", "Startup",
     };
 
     private void OnSectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
@@ -73,6 +104,9 @@ public sealed partial class SettingsWindow : Window
 
         DrawerSection.Visibility = Vis(tag == "Drawer");
         MediaSection.Visibility = Vis(tag == "Media");
+        SourcesSection.Visibility = Vis(tag == "Sources");
+        LyricsSection.Visibility = Vis(tag == "Lyrics");
+        LastFmSection.Visibility = Vis(tag == "LastFm");
         AppearanceSection.Visibility = Vis(tag == "Appearance");
         MonitorsSection.Visibility = Vis(tag == "Monitors");
         PrivacySection.Visibility = Vis(tag == "Privacy");
@@ -125,6 +159,16 @@ public sealed partial class SettingsWindow : Window
                 Environment.NewLine,
                 s.Media.PlayerAliases.Select(p => $"{p.Key}={p.Value}"));
             TimelineTick.Value = s.Media.TimelineTickMs;
+            SourceMode.SelectedIndex = (int)s.Media.SourceMode;
+            CaptureMediaKeys.IsOn = s.Media.CaptureMediaKeys;
+            BuildSourcesList(s);
+
+            LyricsProviderBox.SelectedIndex = (int)s.Lyrics.Provider;
+            LyricsOffset.Value = s.Lyrics.OffsetMs;
+
+            LastFmEnabled.IsOn = s.LastFm.Enabled;
+            LastFmScrobble.IsOn = s.LastFm.Scrobble;
+            LastFmNowPlaying.IsOn = s.LastFm.NowPlaying;
 
             Theme.SelectedIndex = (int)s.Appearance.Theme;
             Backdrop.SelectedIndex = (int)s.Appearance.Backdrop;
@@ -155,6 +199,71 @@ public sealed partial class SettingsWindow : Window
         finally
         {
             _loading = false;
+        }
+    }
+
+    private static readonly string[] RuleModeLabels = { "Always", "Auto", "Never" };
+
+    private void BuildSourcesList(CoreSettings s)
+    {
+        SourcesList.Children.Clear();
+        _sourceRows.Clear();
+
+        IReadOnlyList<SeenSource> seen = _sources?.Snapshot() ?? Array.Empty<SeenSource>();
+        SourcesEmpty.Visibility = seen.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        // Resolve each source's current rule against the user rules plus the built-in defaults.
+        var rules = new List<SourceRule>(s.Media.SourceRules);
+        foreach (SourceRule def in SourceRule.Defaults)
+        {
+            if (!rules.Exists(r => string.Equals(r.Match, def.Match, StringComparison.Ordinal)))
+            {
+                rules.Add(def);
+            }
+        }
+
+        var options = new MediaOptions { SourceRules = rules };
+
+        foreach (SeenSource source in seen)
+        {
+            var row = new StackPanel { Spacing = 4 };
+
+            var header = new Grid { ColumnSpacing = 12 };
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var name = new TextBlock
+            {
+                Text = string.IsNullOrWhiteSpace(source.DisplayName) ? source.SourceAppId : source.DisplayName,
+                TextTrimming = Microsoft.UI.Xaml.TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            Grid.SetColumn(name, 0);
+            header.Children.Add(name);
+
+            var combo = new ComboBox { MinWidth = 120 };
+            foreach (string label in RuleModeLabels)
+            {
+                combo.Items.Add(new ComboBoxItem { Content = label });
+            }
+
+            combo.SelectedIndex = (int)options.RuleFor(source.SourceAppId, source.DisplayName);
+            combo.SetValue(
+                Microsoft.UI.Xaml.Automation.AutomationProperties.NameProperty,
+                $"Rule for {source.DisplayName}");
+            Grid.SetColumn(combo, 1);
+            header.Children.Add(combo);
+            row.Children.Add(header);
+
+            row.Children.Add(new TextBlock
+            {
+                Text = $"{source.SourceAppId} — {source.LastVerdict}",
+                Style = (Microsoft.UI.Xaml.Style)Application.Current.Resources["CaptionTextBlockStyle"],
+                TextWrapping = Microsoft.UI.Xaml.TextWrapping.Wrap,
+            });
+
+            SourcesList.Children.Add(row);
+            _sourceRows.Add(new SourceRow(source.SourceAppId, source.DisplayName, combo));
         }
     }
 
@@ -359,6 +468,20 @@ public sealed partial class SettingsWindow : Window
                 IgnoredPlayers = ParseLines(IgnoredPlayers.Text),
                 PlayerAliases = ParseAliases(PlayerAliases.Text),
                 TimelineTickMs = ToInt(TimelineTick.Value, current.Media.TimelineTickMs),
+                SourceMode = (global::WinDots.Core.Media.SourceMode)Math.Max(0, SourceMode.SelectedIndex),
+                CaptureMediaKeys = CaptureMediaKeys.IsOn,
+                SourceRules = BuildSourceRules(current.Media.SourceRules),
+            },
+            Lyrics = current.Lyrics with
+            {
+                Provider = (global::WinDots.Core.Settings.LyricsProvider)Math.Max(0, LyricsProviderBox.SelectedIndex),
+                OffsetMs = ToInt(LyricsOffset.Value, current.Lyrics.OffsetMs),
+            },
+            LastFm = current.LastFm with
+            {
+                Enabled = LastFmEnabled.IsOn,
+                Scrobble = LastFmScrobble.IsOn,
+                NowPlaying = LastFmNowPlaying.IsOn,
             },
             Appearance = current.Appearance with
             {
@@ -421,6 +544,32 @@ public sealed partial class SettingsWindow : Window
         }
     }
 
+    /// <summary>
+    /// Builds the persisted source rules: the existing rules whose match is not an exact source id managed by the
+    /// Sources page, plus one exact-id rule per listed source with the mode the user chose. This keeps substring-style
+    /// user rules while letting the page own per-source overrides.
+    /// </summary>
+    private IReadOnlyList<SourceRule> BuildSourceRules(IReadOnlyList<SourceRule> existing)
+    {
+        var managedIds = new HashSet<string>(_sourceRows.Select(r => r.SourceAppId), StringComparer.Ordinal);
+        var result = new List<SourceRule>();
+        foreach (SourceRule rule in existing)
+        {
+            if (!managedIds.Contains(rule.Match))
+            {
+                result.Add(rule);
+            }
+        }
+
+        foreach (SourceRow row in _sourceRows)
+        {
+            var mode = (SourceRuleMode)Math.Max(0, row.Combo.SelectedIndex);
+            result.Add(new SourceRule(row.SourceAppId, mode));
+        }
+
+        return result;
+    }
+
     private static int ToInt(double value, int fallback) =>
         double.IsNaN(value) ? fallback : (int)Math.Round(value, MidpointRounding.AwayFromZero);
 
@@ -453,5 +602,139 @@ public sealed partial class SettingsWindow : Window
         }
 
         return map;
+    }
+
+    // ---- Last.fm (E4) ----
+
+    private void OnLastFmStateChanged(object? sender, EventArgs e) => RefreshLastFmUi();
+
+    private void RefreshLastFmUi()
+    {
+        if (_lastFm is null)
+        {
+            return;
+        }
+
+        bool hasKey = _lastFm.HasApiKey;
+        bool signedIn = _lastFm.IsSignedIn;
+        bool signingIn = _signInCts is not null;
+
+        LastFmKeyPanel.Visibility = Vis(!hasKey);
+        LastFmSignInPanel.Visibility = Vis(hasKey && !signedIn);
+        LastFmSignInProgress.Visibility = Vis(signingIn);
+        LastFmSignIn.IsEnabled = !signingIn;
+        LastFmSignedInPanel.Visibility = Vis(signedIn);
+
+        if (signedIn)
+        {
+            LastFmUserName.Text = _lastFm.Username ?? "Last.fm user";
+            LastFmAvatar.DisplayName = _lastFm.Username ?? string.Empty;
+            if (!string.IsNullOrEmpty(_lastFm.AvatarUrl) && Uri.TryCreate(_lastFm.AvatarUrl, UriKind.Absolute, out Uri? avatar))
+            {
+                LastFmAvatar.ProfilePicture = new BitmapImage(avatar);
+            }
+
+            _ = LoadRecentTracksAsync();
+        }
+    }
+
+    private async Task LoadRecentTracksAsync()
+    {
+        if (_lastFm is null)
+        {
+            return;
+        }
+
+        IReadOnlyList<RecentTrack> tracks = await _lastFm.GetRecentTracksAsync(10, CancellationToken.None);
+        LastFmRecent.Children.Clear();
+        LastFmRecentEmpty.Visibility = Vis(tracks.Count == 0);
+        foreach (RecentTrack track in tracks)
+        {
+            string prefix = track.NowPlaying ? "▶ " : string.Empty;
+            LastFmRecent.Children.Add(new TextBlock
+            {
+                Text = $"{prefix}{track.Artist} — {track.Track}",
+                TextTrimming = Microsoft.UI.Xaml.TextTrimming.CharacterEllipsis,
+                Style = (Microsoft.UI.Xaml.Style)Application.Current.Resources["CaptionTextBlockStyle"],
+            });
+        }
+    }
+
+    private void OnLastFmCreateKey(object sender, RoutedEventArgs e) =>
+        _ = global::Windows.System.Launcher.LaunchUriAsync(new Uri("https://www.last.fm/api/account/create"));
+
+    private async void OnLastFmValidateKey(object sender, RoutedEventArgs e)
+    {
+        if (_lastFm is null)
+        {
+            return;
+        }
+
+        LastFmValidate.IsEnabled = false;
+        LastFmStatus.Text = "Validating key…";
+        try
+        {
+            bool ok = await _lastFm.ValidateAndStoreKeyAsync(LastFmApiKey.Text, LastFmApiSecret.Password, CancellationToken.None);
+            LastFmStatus.Text = ok ? "Key saved. You can now sign in." : "That key or secret was rejected by Last.fm.";
+            if (ok)
+            {
+                LastFmApiSecret.Password = string.Empty;
+            }
+        }
+        finally
+        {
+            LastFmValidate.IsEnabled = true;
+            RefreshLastFmUi();
+        }
+    }
+
+    private async void OnLastFmSignIn(object sender, RoutedEventArgs e)
+    {
+        if (_lastFm is null || _signInCts is not null)
+        {
+            return;
+        }
+
+        LastFmStatus.Text = string.Empty;
+        (string Token, Uri AuthUrl)? begin = await _lastFm.BeginSignInAsync(CancellationToken.None);
+        if (begin is not { } started)
+        {
+            LastFmStatus.Text = "Could not start sign-in. Check the API key.";
+            return;
+        }
+
+        await global::Windows.System.Launcher.LaunchUriAsync(started.AuthUrl);
+
+        _signInCts = new CancellationTokenSource();
+        RefreshLastFmUi();
+        try
+        {
+            bool ok = await _lastFm.CompleteSignInAsync(started.Token, _signInCts.Token);
+            LastFmStatus.Text = ok ? "Signed in." : "Sign-in timed out. Try again.";
+        }
+        catch (OperationCanceledException)
+        {
+            LastFmStatus.Text = "Sign-in cancelled.";
+        }
+        finally
+        {
+            _signInCts?.Dispose();
+            _signInCts = null;
+            RefreshLastFmUi();
+        }
+    }
+
+    private void OnLastFmCancelSignIn(object sender, RoutedEventArgs e) => _signInCts?.Cancel();
+
+    private async void OnLastFmSignOut(object sender, RoutedEventArgs e)
+    {
+        if (_lastFm is null)
+        {
+            return;
+        }
+
+        await _lastFm.SignOutAsync(CancellationToken.None);
+        LastFmStatus.Text = "Signed out.";
+        RefreshLastFmUi();
     }
 }

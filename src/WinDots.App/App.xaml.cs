@@ -89,7 +89,11 @@ public partial class App : Application
             onSeekForward: () => _host!.DiagSeekForward(),
             onAudioMatch: () => _host!.DiagAudioMatch(),
             onSetVolume25: () => _host!.DiagSetVolume25(),
-            onToggleMute: () => _host!.DiagToggleMute());
+            onToggleMute: () => _host!.DiagToggleMute(),
+            onMediaPlayPause: () => _host!.MediaPlayPause(),
+            onMediaNext: () => _host!.MediaNext(),
+            onMediaPrevious: () => _host!.MediaPrevious(),
+            onMediaStop: () => _host!.MediaStop());
 
         _ = MediaSessions.InitializeAsync(System.Threading.CancellationToken.None);
     }
@@ -108,7 +112,7 @@ public partial class App : Application
             return;
         }
 
-        _settingsWindow = new SettingsWindow(_settings, _monitors);
+        _settingsWindow = new SettingsWindow(_settings, _monitors, _host?.Sources, _host?.LastFm);
         _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         _settingsWindow.Activate();
     }

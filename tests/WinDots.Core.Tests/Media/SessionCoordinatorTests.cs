@@ -27,8 +27,9 @@ public class SessionCoordinatorTests
         return new FakeMediaSession(snapshot);
     }
 
+    // These tests cover the ranking policy, not the E1 source/music filter, so they surface every source.
     private static SessionCoordinator Coordinator(FakeMediaSessionProvider provider, MediaOptions? options = null) =>
-        new(provider, options ?? new MediaOptions(), () => Now);
+        new(provider, options ?? new MediaOptions { SourceMode = SourceMode.All }, () => Now);
 
     // ---- Scoring rows -------------------------------------------------------
 
@@ -94,7 +95,7 @@ public class SessionCoordinatorTests
         FakeMediaSession playing = Session("a#0", PlaybackState.Playing, app: "other", display: "Other");
         FakeMediaSession preferred = Session("b#0", PlaybackState.Stopped, app: "Spotify.exe", display: "Spotify");
         provider.SetSessions(playing, preferred);
-        using SessionCoordinator c = Coordinator(provider, new MediaOptions { PreferredPlayer = "Spotify" });
+        using SessionCoordinator c = Coordinator(provider, new MediaOptions { PreferredPlayer = "Spotify", SourceMode = SourceMode.All });
 
         // preferred: 400; playing: 300.
         Assert.Same(preferred, c.Active);
@@ -108,7 +109,7 @@ public class SessionCoordinatorTests
         FakeMediaSession preferred = Session("a#0", PlaybackState.Playing, app: "Spotify", display: "Spotify");
         FakeMediaSession other = Session("b#0", PlaybackState.Stopped);
         provider.SetSessions(preferred, other);
-        using SessionCoordinator c = Coordinator(provider, new MediaOptions { PreferredPlayer = "Spotify" });
+        using SessionCoordinator c = Coordinator(provider, new MediaOptions { PreferredPlayer = "Spotify", SourceMode = SourceMode.All });
 
         c.Pin("b#0");
 
@@ -271,7 +272,7 @@ public class SessionCoordinatorTests
         FakeMediaSession ignored = Session("a#0", PlaybackState.Playing, app: "Widget.exe", display: "Widget");
         FakeMediaSession kept = Session("b#0", PlaybackState.Stopped);
         provider.SetSessions(ignored, kept);
-        using SessionCoordinator c = Coordinator(provider, new MediaOptions { IgnoredPlayers = new[] { "Widget" } });
+        using SessionCoordinator c = Coordinator(provider, new MediaOptions { IgnoredPlayers = new[] { "Widget" }, SourceMode = SourceMode.All });
 
         Assert.Same(kept, c.Active);
         Assert.DoesNotContain(ignored, c.Candidates);
@@ -284,7 +285,7 @@ public class SessionCoordinatorTests
         FakeMediaSessionProvider provider = new();
         FakeMediaSession ignored = Session("a#0", PlaybackState.Playing, app: "Widget.exe", display: "Widget");
         provider.SetSessions(ignored);
-        using SessionCoordinator c = Coordinator(provider, new MediaOptions { IgnoredPlayers = new[] { "Widget" } });
+        using SessionCoordinator c = Coordinator(provider, new MediaOptions { IgnoredPlayers = new[] { "Widget" }, SourceMode = SourceMode.All });
 
         Assert.Null(c.Active);
         Assert.Equal(SelectionReason.None, c.Reason);

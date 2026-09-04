@@ -6,15 +6,15 @@ WinDots controls media locally. Nothing leaves the device unless an integration 
 
 - Media control uses the Windows media-session API and Core Audio; no UI scraping, no private APIs.
 - No telemetry, no crash upload, no usage statistics.
-- Settings live in the package `LocalState\settings.json`. Artwork is cached under `LocalState\cache\artwork` with a 32 MB budget and 30-day expiry. The shell log under `LocalState\logs` contains states and reasons only, never titles, unless `diagnostics.includeMediaText` is enabled.
+- Settings live in the package `LocalState\settings.json`. Artwork is cached under `LocalState\cache\artwork` with a 32 MB budget and 30-day expiry. Lyrics, when enabled, are cached under `LocalState\cache\lyrics` (30-day expiry, keyed by a SHA-256 of the normalised query) and per-track sync offsets in `LocalState\lyrics-offsets.json`; neither is written while lyrics are off. The shell log under `LocalState\logs` contains states and reasons only, never titles, unless `diagnostics.includeMediaText` is enabled.
 - Listening history is off until explicitly enabled and has retention, export, and delete-all controls.
 
 ## Integrations (all off by default)
 
 | Integration | Sent when on | Credential |
 |---|---|---|
-| Lyrics (LRCLIB) | Title, artists, album, duration of the current track | none |
-| Last.fm | Track metadata for now-playing and scrobbles; love/unlove | Session key in Windows Credential Manager after browser sign-in |
+| Lyrics (LRCLIB) | Title, artists, album, duration of the current track, sent to `https://lrclib.net/api/get` (HTTPS, 5 s timeout, 256 KB cap, one request per track change) | none |
+| Last.fm | Artist, title, album, and duration of the current track, sent to `https://ws.audioscrobbler.com/2.0/` (HTTPS, 10 s timeout, 512 KB cap) for now-playing (track start) and scrobbles (at 50 % or 4 min, tracks over 30 s); love/unlove on request. Pending scrobbles are queued in `LocalState\scrobble-queue.json` and retried with backoff. | API key/secret (only when the build embeds none) and the session key + username in Windows Credential Manager (`WinDots` resource) after browser sign-in; "Sign out" deletes the session |
 | ListenBrainz | Track metadata for listens | User token in Credential Manager |
 | MusicBrainz | Track metadata for identifier lookup | none |
 | Spotify Web API | Track identifiers for like/playlist actions | OAuth PKCE tokens in Credential Manager |

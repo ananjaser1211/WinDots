@@ -133,13 +133,31 @@
 
             <!-- Centre: metadata, seek, transport, status, volume placeholder. -->
             <StackPanel x:Name="MetadataPanel" Grid.Column="1" Grid.Row="0" Grid.RowSpan="2" VerticalAlignment="Center" Spacing="2">
-                <TextBlock
-                    Text="{x:Bind ViewModel.Title, Mode=OneWay}"
-                    Style="{StaticResource WdTitleTextStyle}"
-                    TextTrimming="CharacterEllipsis"
-                    MaxLines="1"
-                    AutomationProperties.Name="Title"
-                    Visibility="{x:Bind Shown(ViewModel.IsEmpty), Mode=OneWay}" />
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock
+                        Grid.Column="0"
+                        Text="{x:Bind ViewModel.Title, Mode=OneWay}"
+                        Style="{StaticResource WdTitleTextStyle}"
+                        TextTrimming="CharacterEllipsis"
+                        MaxLines="1"
+                        AutomationProperties.Name="Title"
+                        Visibility="{x:Bind Shown(ViewModel.IsEmpty), Mode=OneWay}" />
+                    <ToggleButton
+                        x:Name="LoveButton"
+                        Grid.Column="1"
+                        Padding="6"
+                        VerticalAlignment="Center"
+                        Visibility="Collapsed"
+                        Click="OnLoveClicked"
+                        ToolTipService.ToolTip="Love on Last.fm"
+                        AutomationProperties.Name="Love this track on Last.fm">
+                        <FontIcon x:Name="LoveIcon" Glyph="&#xEB51;" FontSize="16" />
+                    </ToggleButton>
+                </Grid>
                 <TextBlock
                     Text="{x:Bind ViewModel.ArtistText, Mode=OneWay}"
                     Style="{StaticResource WdSubtitleTextStyle}"
@@ -250,6 +268,16 @@
                 <controls:LyricsPanel
                     x:Name="Lyrics"
                     Grid.Row="0"
+                    AccentBrush="{x:Bind ViewModel.AccentBrush}"
+                    Lines="{x:Bind ViewModel.LyricsLines, Mode=OneWay}"
+                    CurrentIndex="{x:Bind ViewModel.LyricsCurrentIndex, Mode=OneWay}"
+                    Synced="{x:Bind ViewModel.LyricsSynced, Mode=OneWay}"
+                    AttributionText="{x:Bind ViewModel.LyricsAttribution, Mode=OneWay}"
+                    State="{x:Bind ViewModel.LyricsState, Mode=OneWay}"
+                    EnableLyricsRequested="OnLyricsEnable"
+                    OffsetIncreaseRequested="OnLyricsOffsetIncrease"
+                    OffsetDecreaseRequested="OnLyricsOffsetDecrease"
+                    OffsetResetRequested="OnLyricsOffsetReset"
                     CopyRequested="OnLyricsCopy"
                     OpenInPlayerRequested="OnLyricsOpen"
                     WhyVolumeHiddenRequested="OnLyricsWhyVolumeHidden"
@@ -262,6 +290,7 @@
                     AccentBrush="{x:Bind ViewModel.AccentBrush}"
                     Items="{x:Bind ViewModel.ChooserItems, Mode=OneWay}"
                     ActiveLabel="{x:Bind ViewModel.ActiveChooserLabel, Mode=OneWay}"
+                    ShowAllSources="{x:Bind ViewModel.ShowAllSources, Mode=TwoWay}"
                     PlayerSelected="OnPlayerSelected" />
             </Grid>
             </Grid>

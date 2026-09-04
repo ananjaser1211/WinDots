@@ -17,6 +17,13 @@ namespace WinDots.App.Shell;
 internal sealed class ShellMessageWindow : IDisposable
 {
     private const int HotkeyId = 1;
+
+    // Media-key hotkey ids (E2 media.captureMediaKeys).
+    private const int HotkeyMediaPlayPause = 10;
+    private const int HotkeyMediaNext = 11;
+    private const int HotkeyMediaPrevious = 12;
+    private const int HotkeyMediaStop = 13;
+
     private const uint TrayIconId = 1;
 
     // Context-menu command ids (WM_COMMAND wParam low word).
@@ -59,6 +66,13 @@ internal sealed class ShellMessageWindow : IDisposable
     private readonly Action _onAudioMatch;
     private readonly Action _onSetVolume25;
     private readonly Action _onToggleMute;
+    private readonly Action _onMediaPlayPause;
+    private readonly Action _onMediaNext;
+    private readonly Action _onMediaPrevious;
+    private readonly Action _onMediaStop;
+
+    private bool _mediaKeysRegistered;
+    private bool _lastCaptureMediaKeys;
 
     private nint _hwnd;
     private nint _iconHandle;
@@ -81,12 +95,20 @@ internal sealed class ShellMessageWindow : IDisposable
         Action onSeekForward,
         Action onAudioMatch,
         Action onSetVolume25,
-        Action onToggleMute)
+        Action onToggleMute,
+        Action onMediaPlayPause,
+        Action onMediaNext,
+        Action onMediaPrevious,
+        Action onMediaStop)
     {
         _settings = settings;
         _onAudioMatch = onAudioMatch;
         _onSetVolume25 = onSetVolume25;
         _onToggleMute = onToggleMute;
+        _onMediaPlayPause = onMediaPlayPause;
+        _onMediaNext = onMediaNext;
+        _onMediaPrevious = onMediaPrevious;
+        _onMediaStop = onMediaStop;
         _onToggleAtCursor = onToggleAtCursor;
         _onToggleOnMonitor = onToggleOnMonitor;
         _onDismiss = onDismiss;
@@ -101,6 +123,8 @@ internal sealed class ShellMessageWindow : IDisposable
 
         CreateWindow();
         RegisterHotkey();
+        _lastCaptureMediaKeys = _settings.Current.Media.CaptureMediaKeys;
+        ApplyMediaKeyCapture(_lastCaptureMediaKeys);
         AddTrayIcon();
 
         // Live-react to a changed toggle shortcut: unregister and re-register from the new value.
@@ -220,13 +244,77 @@ internal sealed class ShellMessageWindow : IDisposable
     {
         // Only touch the hotkey when the chord actually changed, so unrelated saves do not churn registration.
         string shortcut = s.Drawer.ToggleShortcut;
-        if (shortcut == _lastShortcut)
+        if (shortcut != _lastShortcut)
+        {
+            _lastShortcut = shortcut;
+            RegisterHotkey();
+        }
+
+        // React to a changed media-key capture toggle.
+        if (s.Media.CaptureMediaKeys != _lastCaptureMediaKeys)
+        {
+            _lastCaptureMediaKeys = s.Media.CaptureMediaKeys;
+            ApplyMediaKeyCapture(_lastCaptureMediaKeys);
+        }
+    }
+
+    /// <summary>
+    /// Registers or unregisters the media transport keys (Play/Pause, Next, Previous, Stop) as modifier-less global
+    /// hotkeys so a paused video in another window never steals them from the active music session. E2 opt-in.
+    /// </summary>
+    private void ApplyMediaKeyCapture(bool enabled)
+    {
+        if (enabled)
+        {
+            RegisterMediaKeys();
+        }
+        else
+        {
+            UnregisterMediaKeys();
+        }
+    }
+
+    private void RegisterMediaKeys()
+    {
+        if (_hwnd == 0 || _mediaKeysRegistered)
         {
             return;
         }
 
-        _lastShortcut = shortcut;
-        RegisterHotkey();
+        bool all = true;
+        all &= RegisterMediaKey(HotkeyMediaPlayPause, NativeInterop.VK_MEDIA_PLAY_PAUSE, "Play/Pause");
+        all &= RegisterMediaKey(HotkeyMediaNext, NativeInterop.VK_MEDIA_NEXT_TRACK, "Next");
+        all &= RegisterMediaKey(HotkeyMediaPrevious, NativeInterop.VK_MEDIA_PREV_TRACK, "Previous");
+        all &= RegisterMediaKey(HotkeyMediaStop, NativeInterop.VK_MEDIA_STOP, "Stop");
+        _mediaKeysRegistered = true;
+        WinDots.App.Diagnostics.ShellLog.Write($"media keys: capture enabled (allRegistered={all})");
+    }
+
+    private bool RegisterMediaKey(int id, uint vk, string name)
+    {
+        bool ok = NativeInterop.RegisterHotKey(_hwnd, id, NativeInterop.MOD_NOREPEAT, vk);
+        if (!ok)
+        {
+            WinDots.App.Diagnostics.ShellLog.Write(
+                $"media keys: RegisterHotKey {name} failed ({Marshal.GetLastWin32Error()})");
+        }
+
+        return ok;
+    }
+
+    private void UnregisterMediaKeys()
+    {
+        if (_hwnd == 0 || !_mediaKeysRegistered)
+        {
+            return;
+        }
+
+        _ = NativeInterop.UnregisterHotKey(_hwnd, HotkeyMediaPlayPause);
+        _ = NativeInterop.UnregisterHotKey(_hwnd, HotkeyMediaNext);
+        _ = NativeInterop.UnregisterHotKey(_hwnd, HotkeyMediaPrevious);
+        _ = NativeInterop.UnregisterHotKey(_hwnd, HotkeyMediaStop);
+        _mediaKeysRegistered = false;
+        WinDots.App.Diagnostics.ShellLog.Write("media keys: capture disabled");
     }
 
     private void AddTrayIcon()
@@ -287,6 +375,22 @@ internal sealed class ShellMessageWindow : IDisposable
         {
             case NativeInterop.WM_HOTKEY when (int)wParam == HotkeyId:
                 SafeInvoke(_onToggleAtCursor);
+                return 0;
+
+            case NativeInterop.WM_HOTKEY when (int)wParam == HotkeyMediaPlayPause:
+                SafeInvoke(_onMediaPlayPause);
+                return 0;
+
+            case NativeInterop.WM_HOTKEY when (int)wParam == HotkeyMediaNext:
+                SafeInvoke(_onMediaNext);
+                return 0;
+
+            case NativeInterop.WM_HOTKEY when (int)wParam == HotkeyMediaPrevious:
+                SafeInvoke(_onMediaPrevious);
+                return 0;
+
+            case NativeInterop.WM_HOTKEY when (int)wParam == HotkeyMediaStop:
+                SafeInvoke(_onMediaStop);
                 return 0;
 
             case NativeInterop.WM_APP_TRAY:
@@ -472,6 +576,8 @@ internal sealed class ShellMessageWindow : IDisposable
             _ = NativeInterop.UnregisterHotKey(_hwnd, HotkeyId);
             _hotkeyRegistered = false;
         }
+
+        UnregisterMediaKeys();
 
         // The file-loaded icon is owned by us; the IDI_APPLICATION fallback is shared and must not be destroyed.
         if (_iconOwned && _iconHandle != 0)
