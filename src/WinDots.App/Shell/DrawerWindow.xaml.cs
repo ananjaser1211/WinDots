@@ -1,11 +1,11 @@
 using System;
 using System.Numerics;
-using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
 using Windows.Graphics;
 using WinDots.App.Diagnostics;
+using WinDots.App.Media;
 using WinDots.Core.Contracts;
 
 namespace WinDots.App.Shell;
@@ -25,8 +25,7 @@ public sealed partial class DrawerWindow : Window
     public const double DesignHeight = 300;
 
     private readonly DrawerHost _host;
-    private readonly IMediaSessionProvider _provider;
-    private readonly DispatcherQueue _dispatcher;
+    private readonly MediaViewModel _viewModel;
     private readonly nint _hwnd;
 
     private double _scale = 1.0;
@@ -42,12 +41,12 @@ public sealed partial class DrawerWindow : Window
     // deactivation that can accompany opening from a global hotkey never dismisses it immediately.
     private bool _clickOutsideArmed;
 
-    public DrawerWindow(DrawerHost host, IMediaSessionProvider provider)
+    public DrawerWindow(DrawerHost host, MediaViewModel viewModel)
     {
         _host = host;
-        _provider = provider;
+        _viewModel = viewModel;
         InitializeComponent();
-        _dispatcher = DispatcherQueue.GetForCurrentThread();
+        Page.Initialize(viewModel);
 
         _hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         ConfigurePresenter();
@@ -69,9 +68,6 @@ public sealed partial class DrawerWindow : Window
         DragBand.PointerReleased += OnBandReleased;
         DragBand.PointerCanceled += OnBandLost;
         DragBand.PointerCaptureLost += OnBandLost;
-
-        _provider.SessionsChanged += OnSessionsChanged;
-        UpdateSessions();
 
         // Escape closes when the drawer has focus; losing activation to another app is a click-outside dismiss.
         Root.KeyDown += OnRootKeyDown;
@@ -121,6 +117,7 @@ public sealed partial class DrawerWindow : Window
         {
             AppWindow.Show(activateWindow: false);
             _shown = true;
+            _viewModel.IsDrawerOpen = true;
         }
     }
 
@@ -152,6 +149,7 @@ public sealed partial class DrawerWindow : Window
         {
             AppWindow.Hide();
             _shown = false;
+            _viewModel.IsDrawerOpen = false;
         }
     }
 
@@ -169,6 +167,9 @@ public sealed partial class DrawerWindow : Window
         {
             _clickOutsideArmed = true;
         }
+
+        // Initial keyboard focus lands on play/pause once the drawer has the foreground.
+        Page.FocusDefault();
     }
 
     private PointerSample ToSample(PointerRoutedEventArgs e)
@@ -262,8 +263,4 @@ public sealed partial class DrawerWindow : Window
         ShellLog.Write("drawer deactivated by another app: click-outside dismiss");
         _host.Controller.Dismiss(DismissReason.ClickOutside);
     }
-
-    private void OnSessionsChanged(object? sender, MediaSessionsChangedEventArgs e) => _dispatcher.TryEnqueue(UpdateSessions);
-
-    private void UpdateSessions() => SessionsText.Text = $"Sessions: {_provider.Sessions.Count}";
 }

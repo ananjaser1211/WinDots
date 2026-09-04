@@ -33,6 +33,9 @@ internal sealed class ShellMessageWindow : IDisposable
     public const int CommandShowInspector = 4;
     public const int CommandQuit = 5;
     public const int CommandDumpState = 6;
+    public const int CommandPlayPause = 7;
+    public const int CommandNextCandidate = 8;
+    public const int CommandSeekForward = 9;
 
     private readonly string _className = ClassName;
     private readonly Action _onToggleAtCursor;
@@ -41,6 +44,9 @@ internal sealed class ShellMessageWindow : IDisposable
     private readonly Action _onDumpState;
     private readonly Action _onShowInspector;
     private readonly Action _onQuit;
+    private readonly Action _onPlayPause;
+    private readonly Action _onNextCandidate;
+    private readonly Action _onSeekForward;
 
     private nint _hwnd;
     private nint _iconHandle;
@@ -55,7 +61,10 @@ internal sealed class ShellMessageWindow : IDisposable
         Action onDismiss,
         Action onDumpState,
         Action onShowInspector,
-        Action onQuit)
+        Action onQuit,
+        Action onPlayPause,
+        Action onNextCandidate,
+        Action onSeekForward)
     {
         _onToggleAtCursor = onToggleAtCursor;
         _onToggleOnMonitor = onToggleOnMonitor;
@@ -63,6 +72,9 @@ internal sealed class ShellMessageWindow : IDisposable
         _onDumpState = onDumpState;
         _onShowInspector = onShowInspector;
         _onQuit = onQuit;
+        _onPlayPause = onPlayPause;
+        _onNextCandidate = onNextCandidate;
+        _onSeekForward = onSeekForward;
         _wndProc = WndProc;
 
         CreateWindow();
@@ -238,6 +250,15 @@ internal sealed class ShellMessageWindow : IDisposable
                 break;
             case CommandDumpState:
                 SafeInvoke(_onDumpState);
+                break;
+            case CommandPlayPause:
+                SafeInvoke(_onPlayPause);
+                break;
+            case CommandNextCandidate:
+                SafeInvoke(_onNextCandidate);
+                break;
+            case CommandSeekForward:
+                SafeInvoke(_onSeekForward);
                 break;
             default:
                 break;

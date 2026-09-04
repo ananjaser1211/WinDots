@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="WinDots.App.Media.Controls.LyricsPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:automation="using:Microsoft.UI.Xaml.Automation">
+
+    <Grid RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Header: lyrics glyph + label, and an overflow menu. -->
+        <Grid Grid.Row="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <FontIcon Grid.Column="0" Glyph="&#xE8D2;" FontSize="18" Margin="0,0,8,0" Foreground="{ThemeResource WdOnSurfaceBrush}" />
+            <TextBlock Grid.Column="1" Text="Lyrics" VerticalAlignment="Center" Style="{StaticResource WdSubtitleTextStyle}" />
+            <Button
+                Grid.Column="2"
+                Width="36"
+                Height="36"
+                Padding="0"
+                BorderThickness="0"
+                CornerRadius="{StaticResource RadiusPill}"
+                Background="{ThemeResource WdSurfaceRaisedBrush}"
+                automation:AutomationProperties.Name="More"
+                HorizontalContentAlignment="Center"
+                VerticalContentAlignment="Center">
+                <FontIcon Glyph="&#xE712;" FontSize="16" Foreground="{ThemeResource WdOnSurfaceBrush}" />
+                <Button.Flyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem Text="Copy track info" Click="OnCopyClick" />
+                        <MenuFlyoutItem Text="Open in player" Click="OnOpenInPlayerClick" />
+                        <MenuFlyoutItem Text="Settings" Click="OnSettingsClick" />
+                    </MenuFlyout>
+                </Button.Flyout>
+            </Button>
+        </Grid>
+
+        <!-- Placeholder: shown when there are no lyrics. -->
+        <StackPanel
+            x:Name="Placeholder"
+            Grid.Row="1"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            Spacing="8">
+            <FontIcon Glyph="&#xE9BF;" FontSize="40" HorizontalAlignment="Center" Foreground="{ThemeResource WdOnSurfaceMutedBrush}" />
+            <TextBlock
+                Text="No lyrics found"
+                HorizontalAlignment="Center"
+                Style="{StaticResource WdBodyTextStyle}"
+                Foreground="{ThemeResource WdOnSurfaceMutedBrush}" />
+        </StackPanel>
+
+        <!-- Lyrics body. -->
+        <ScrollViewer x:Name="LyricsScroller" Grid.Row="1" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+            <ItemsControl x:Name="LinesHost">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}" Margin="0,2" Style="{StaticResource WdBodyTextStyle}" Foreground="{ThemeResource WdOnSurfaceMutedBrush}" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

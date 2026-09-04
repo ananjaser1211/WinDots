@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="WinDots.App.Media.MediaPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:WinDots.App.Media.Controls"
+    Background="{ThemeResource WdSurfaceBrush}"
+    IsTabStop="False">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Tab strip: a single "Media" tab (glyph + accent label + short accent underline). -->
+        <Grid Grid.Row="0" Padding="24,10,24,8" HorizontalAlignment="Stretch">
+            <Button
+                x:Name="MediaTab"
+                HorizontalAlignment="Center"
+                Padding="12,2"
+                BorderThickness="0"
+                Background="Transparent"
+                AutomationProperties.Name="Media tab">
+                <StackPanel Orientation="Vertical" HorizontalAlignment="Center" Spacing="2">
+                    <FontIcon
+                        Glyph="&#xE8D6;"
+                        FontSize="16"
+                        HorizontalAlignment="Center"
+                        Foreground="{ThemeResource WdAccentBrush}" />
+                    <TextBlock
+                        Text="Media"
+                        HorizontalAlignment="Center"
+                        Style="{StaticResource WdCaptionTextStyle}"
+                        Foreground="{ThemeResource WdAccentBrush}" />
+                    <Border
+                        Width="28"
+                        Height="2"
+                        Margin="0,2,0,0"
+                        CornerRadius="{StaticResource RadiusPill}"
+                        Background="{ThemeResource WdAccentBrush}" />
+                </StackPanel>
+            </Button>
+        </Grid>
+
+        <!-- Thin divider under the tab strip. -->
+        <Border Grid.Row="1" Height="1" Background="{ThemeResource WdOutlineBrush}" />
+
+        <!-- Body: three columns (artwork, metadata + transport, lyrics + chooser). -->
+        <Grid Grid.Row="2" Margin="24,14,24,16" ColumnSpacing="20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="238" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Left: blob artwork wrapped by the dotted progress ring. -->
+            <Grid Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Center">
+                <controls:DottedProgressRing
+                    x:Name="ProgressRing"
+                    Size="216"
+                    DotCount="72"
+                    DotDiameter="3"
+                    Progress="{x:Bind ViewModel.Progress, Mode=OneWay}"
+                    AccentBrush="{ThemeResource WdAccentBrush}"
+                    TrackBrush="{ThemeResource WdOutlineBrush}"
+                    Visibility="{x:Bind RingVisible(ViewModel.IsEmpty, ViewModel.Duration), Mode=OneWay}" />
+                <controls:BlobArtwork
+                    Size="188"
+                    ImageSource="{x:Bind ViewModel.Artwork, Mode=OneWay}" />
+            </Grid>
+
+            <!-- Centre: metadata, seek, transport, status, volume placeholder. -->
+            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                <TextBlock
+                    Text="{x:Bind ViewModel.Title, Mode=OneWay}"
+                    Style="{StaticResource WdTitleTextStyle}"
+                    TextTrimming="CharacterEllipsis"
+                    MaxLines="1"
+                    AutomationProperties.Name="Title"
+                    Visibility="{x:Bind Shown(ViewModel.IsEmpty), Mode=OneWay}" />
+                <TextBlock
+                    Text="{x:Bind ViewModel.ArtistText, Mode=OneWay}"
+                    Style="{StaticResource WdSubtitleTextStyle}"
+                    TextTrimming="CharacterEllipsis"
+                    MaxLines="1"
+                    AutomationProperties.Name="Artist" />
+                <TextBlock
+                    Text="{x:Bind ViewModel.AlbumText, Mode=OneWay}"
+                    Style="{StaticResource WdBodyTextStyle}"
+                    Foreground="{ThemeResource WdOnSurfaceMutedBrush}"
+                    TextTrimming="CharacterEllipsis"
+                    MaxLines="1"
+                    AutomationProperties.Name="Album" />
+
+                <controls:SeekBar
+                    x:Name="Seek"
+                    Margin="0,10,0,0"
+                    Position="{x:Bind ViewModel.Position, Mode=OneWay}"
+                    Duration="{x:Bind ViewModel.Duration, Mode=OneWay}"
+                    CanSeek="{x:Bind ViewModel.CanSeek, Mode=OneWay}"
+                    SeekRequested="OnSeekRequested" />
+
+                <controls:TransportBar
+                    x:Name="Transport"
+                    Margin="0,10,0,0"
+                    HorizontalAlignment="Left"
+                    Capabilities="{x:Bind ViewModel.Capabilities, Mode=OneWay}"
+                    IsPlaying="{x:Bind ViewModel.IsPlaying, Mode=OneWay}"
+                    IsShuffleOn="{x:Bind ViewModel.IsShuffleOn, Mode=OneWay}"
+                    RepeatMode="{x:Bind ViewModel.RepeatMode, Mode=OneWay}"
+                    ShuffleRequested="OnShuffleRequested"
+                    PreviousRequested="OnPreviousRequested"
+                    PlayPauseRequested="OnPlayPauseRequested"
+                    NextRequested="OnNextRequested"
+                    RepeatRequested="OnRepeatRequested" />
+
+                <TextBlock
+                    x:Name="StatusCaption"
+                    Margin="0,6,0,0"
+                    Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"
+                    Style="{StaticResource WdCaptionTextStyle}"
+                    Foreground="{ThemeResource WdOnSurfaceMutedBrush}"
+                    Visibility="{x:Bind HasText(ViewModel.StatusText), Mode=OneWay}"
+                    AutomationProperties.LiveSetting="Assertive" />
+
+                <!-- Milestone 5: volume row (confidence-gated). Collapsed placeholder until then. -->
+                <Grid x:Name="VolumeRow" Margin="0,8,0,0" Visibility="Collapsed" />
+            </StackPanel>
+
+            <!-- Right: lyrics slot with the player chooser pinned to its bottom. -->
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <controls:LyricsPanel
+                    x:Name="Lyrics"
+                    Grid.Row="0"
+                    CopyRequested="OnLyricsCopy"
+                    OpenInPlayerRequested="OnLyricsOpen"
+                    SettingsRequested="OnLyricsSettings" />
+
+                <controls:PlayerChooser
+                    x:Name="Chooser"
+                    Grid.Row="1"
+                    Margin="0,10,0,0"
+                    Items="{x:Bind ViewModel.ChooserItems, Mode=OneWay}"
+                    ActiveLabel="{x:Bind ViewModel.ActiveChooserLabel, Mode=OneWay}"
+                    PlayerSelected="OnPlayerSelected" />
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>

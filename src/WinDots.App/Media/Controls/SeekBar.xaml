@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="WinDots.App.Media.Controls.SeekBar"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:automation="using:Microsoft.UI.Xaml.Automation">
+
+    <Grid ColumnSpacing="12" VerticalAlignment="Center">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+
+        <TextBlock
+            x:Name="ElapsedText"
+            Grid.Column="0"
+            Text="0:00"
+            VerticalAlignment="Center"
+            Style="{StaticResource WdCaptionTextStyle}"
+            Foreground="{ThemeResource WdOnSurfaceMutedBrush}" />
+
+        <Slider
+            x:Name="Track"
+            Grid.Column="1"
+            Minimum="0"
+            Maximum="1"
+            StepFrequency="1"
+            VerticalAlignment="Center"
+            automation:AutomationProperties.Name="Seek"
+            ValueChanged="OnValueChanged"
+            PointerCaptureLost="OnCommit"
+            KeyDown="OnKeyDown"
+            KeyUp="OnKeyUp" />
+
+        <TextBlock
+            x:Name="DurationText"
+            Grid.Column="2"
+            Text="0:00"
+            VerticalAlignment="Center"
+            Style="{StaticResource WdCaptionTextStyle}"
+            Foreground="{ThemeResource WdOnSurfaceMutedBrush}" />
+    </Grid>
+</UserControl>

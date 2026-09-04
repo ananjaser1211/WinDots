@@ -1,11 +1,15 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.IO;
 using Microsoft.UI.Dispatching;
+using Windows.Storage;
 using Windows.UI.ViewManagement;
 using WinDots.App.Diagnostics;
+using WinDots.App.Media;
 using WinDots.Core.Contracts;
 using WinDots.Core.Drawer;
+using WinDots.Core.Media;
 
 namespace WinDots.App.Shell;
 
@@ -24,6 +28,9 @@ public sealed class DrawerHost
     private readonly IMonitorService _monitors;
     private readonly DispatcherQueue _dispatcher;
     private readonly DrawerController _controller;
+    private readonly SessionCoordinator _coordinator;
+    private readonly ArtworkCache _artworkCache;
+    private readonly MediaViewModel _viewModel;
     private readonly DrawerWindow _drawer;
     private readonly List<HandleWindow> _handles = new();
     private readonly DispatcherQueueTimer _frameTimer;
@@ -55,8 +62,27 @@ public sealed class DrawerHost
         _frameTimer.IsRepeating = true;
         _frameTimer.Tick += OnFrame;
 
+        // Media pipeline: options (defaults + player aliases, per _docs/06-settings-schema.md), the session
+        // coordinator, a persistent artwork cache, and the presentation model that feeds the media page.
+        var mediaOptions = new MediaOptions
+        {
+            PlayerAliases = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["Chrome"] = "Chrome",
+                ["msedge"] = "Microsoft Edge",
+                ["Spotify"] = "Spotify",
+                ["ZuneMusic"] = "Media Player",
+                ["WinDots.TestPlayer"] = "Test Player",
+            },
+        };
+
+        _coordinator = new SessionCoordinator(provider, mediaOptions);
+        var artworkDir = Path.Combine(ApplicationData.Current.LocalFolder.Path, "cache", "artwork");
+        _artworkCache = new ArtworkCache(artworkDir, 32L * 1024 * 1024);
+        _viewModel = new MediaViewModel(_coordinator, provider, _artworkCache, mediaOptions, _dispatcher);
+
         _activeMonitor = PickDefaultMonitor();
-        _drawer = new DrawerWindow(this, provider);
+        _drawer = new DrawerWindow(this, _viewModel);
 
         BuildHandles();
         _monitors.TopologyChanged += OnTopologyChanged;
@@ -126,6 +152,9 @@ public sealed class DrawerHost
         _frameTimer.Stop();
         _monitors.TopologyChanged -= OnTopologyChanged;
         _controller.Transition -= OnTransition;
+        _viewModel.Dispose();
+        _coordinator.Dispose();
+        _artworkCache.Dispose();
         _drawer.HideWindow();
         _drawer.Close();
         foreach (var handle in _handles.ToArray())
@@ -137,6 +166,46 @@ public sealed class DrawerHost
         ShellLog.Write("host shut down");
     }
 
+    /// <summary>Diagnostics hook: play/pause the active session.</summary>
+    public void DiagPlayPause() => _ = _viewModel.PlayPauseAsync();
+
+    /// <summary>Diagnostics hook: pin the next candidate after the current active; wraps to Automatic past the end.</summary>
+    public void DiagNextCandidate()
+    {
+        IReadOnlyList<IMediaSession> candidates = _coordinator.Candidates;
+        if (candidates.Count == 0)
+        {
+            ShellLog.Write("diag next-candidate: no candidates");
+            return;
+        }
+
+        IMediaSession? active = _coordinator.Active;
+        int index = -1;
+        for (int i = 0; i < candidates.Count; i++)
+        {
+            if (active is not null && candidates[i].Id == active.Id)
+            {
+                index = i;
+                break;
+            }
+        }
+
+        int next = index + 1;
+        if (next >= candidates.Count)
+        {
+            ShellLog.Write("diag next-candidate: wrap -> Automatic");
+            _viewModel.SelectPlayer(null);
+        }
+        else
+        {
+            ShellLog.Write($"diag next-candidate: pin index {next}");
+            _viewModel.SelectPlayer(candidates[next].Id);
+        }
+    }
+
+    /// <summary>Diagnostics hook: seek the active session forward by 10 seconds.</summary>
+    public void DiagSeekForward() => _ = _viewModel.SeekAsync(_viewModel.Position + TimeSpan.FromSeconds(10));
+
     /// <summary>Diagnostics hook: writes the host's state to the shell log.</summary>
     public void DumpState()
     {
@@ -144,6 +213,12 @@ public sealed class DrawerHost
             $"state: controller={_controller.State} progress={_controller.Progress:0.###} shown={_drawerShown} " +
             $"active={_activeMonitor.DeviceId} pending={_pendingMonitor?.DeviceId ?? "-"} handles={_handles.Count} " +
             $"drawerHwnd=0x{_drawer.Hwnd:X} foregroundIsDrawer={NativeInterop.GetForegroundWindow() == _drawer.Hwnd}");
+
+        IMediaSession? active = _coordinator.Active;
+        ShellLog.Write(
+            $"media: activeId={active?.Id ?? "-"} reason={_coordinator.Reason} " +
+            $"state={active?.Current.State.ToString() ?? "-"} hasMetadata={active?.Current.HasMetadata.ToString() ?? "-"} " +
+            $"candidates={_coordinator.Candidates.Count}");
     }
 
     private MonitorInfo MonitorAtCursor()

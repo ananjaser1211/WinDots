@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="WinDots.App.Media.Controls.BlobArtwork"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    HorizontalAlignment="Center"
+    VerticalAlignment="Center"
+    IsTabStop="False">
+
+    <Grid x:Name="LayoutRoot">
+        <!-- Placeholder: the blob filled with the raised surface plus centred image + pause glyphs. -->
+        <Path x:Name="PlaceholderShape" Fill="{ThemeResource WdSurfaceRaisedBrush}" />
+        <StackPanel
+            x:Name="PlaceholderGlyphs"
+            Orientation="Horizontal"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center">
+            <FontIcon
+                x:Name="PlaceholderImageGlyph"
+                Glyph="&#xE91B;"
+                Foreground="{ThemeResource WdOnSurfaceMutedBrush}" />
+            <FontIcon
+                x:Name="PlaceholderPauseGlyph"
+                Glyph="&#xE769;"
+                Margin="4,0,0,0"
+                Foreground="{ThemeResource WdOnSurfaceMutedBrush}" />
+        </StackPanel>
+
+        <!-- Two stacked artwork layers for the cross-fade. -->
+        <Path x:Name="PathA" Opacity="0" />
+        <Path x:Name="PathB" Opacity="0" />
+    </Grid>
+</UserControl>

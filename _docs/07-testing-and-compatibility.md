@@ -69,7 +69,7 @@ Platform behaviour established while fixing session identity (2026-09-04, Window
 
 ## Shell check (on device, no input injection)
 
-Never test the shell by injecting global keyboard or mouse input; it lands in whatever window is foreground (it has stopped the developer's own terminal session). The app exposes a diagnostics hook instead: post `WM_APP+2` (`0x8002`) to the hidden window of class `WinDots.ShellMessageWindow` with `wParam` = command (1 toggle at cursor, 2 toggle on monitor index `lParam`, 3 dismiss, 4 inspector, 5 quit, 6 dump state) and read the log at `%LOCALAPPDATA%\Packages\<pfn>\LocalState\logs\shell.log`.
+Never test the shell by injecting global keyboard or mouse input; it lands in whatever window is foreground (it has stopped the developer's own terminal session). The app exposes a diagnostics hook instead: post `WM_APP+2` (`0x8002`) to the hidden window of class `WinDots.ShellMessageWindow` with `wParam` = command (1 toggle at cursor, 2 toggle on monitor index `lParam`, 3 dismiss, 4 inspector, 5 quit, 6 dump state, 7 play/pause the active session, 8 pin the next candidate after the current active — wraps to Automatic past the end, 9 seek the active session +10 s) and read the log at `%LOCALAPPDATA%\Packages\<pfn>\LocalState\logs\shell.log`.
 
 ```powershell
 .\tests\scripts\Invoke-ShellCheck.ps1 -Launch   # registers the Debug build, launches, drives, quits

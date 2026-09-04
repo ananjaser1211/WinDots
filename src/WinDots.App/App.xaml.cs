@@ -44,7 +44,10 @@ public partial class App : Application
             onDismiss: () => _host!.Dismiss(DismissReason.Escape),
             onDumpState: () => _host!.DumpState(),
             onShowInspector: DrawerHost.ShowInspector,
-            onQuit: Quit);
+            onQuit: Quit,
+            onPlayPause: () => _host!.DiagPlayPause(),
+            onNextCandidate: () => _host!.DiagNextCandidate(),
+            onSeekForward: () => _host!.DiagSeekForward());
 
         _ = MediaSessions.InitializeAsync(System.Threading.CancellationToken.None);
     }
