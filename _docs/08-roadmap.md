@@ -37,7 +37,7 @@ Branch naming: `feat/<area>`, `fix/<area>`, `docs/<area>`. Every milestone ends 
 2. Done: tokens (`Resources/Tokens.xaml`), controls `BlobArtwork`, `DottedProgressRing`, `TransportBar`, `SeekBar`, `PlayerChooser`, `LyricsPanel`; `MediaViewModel`; `MediaPage` hosted in `DrawerWindow`; diagnostics commands 7/8/9 (commit `7e18237`).
 3. Done in code: empty state per `Static.png` (ring shown unfilled, "Unknown title/artist/album", chooser shows the system-current source).
 4. Done: `ArtworkCache` (32 MB LRU + disk, single-flight) wired into the view-model.
-- **Exit pending**: on-device capture comparison to `MediaPlayer.png` / `Static.png` (`tests/scripts/Capture-Drawer.ps1`; blocked while the workstation is locked) and the M3 manual checklist. Log evidence so far: coordinator selects the test player, hook play/pause round-trips.
+- **Exit met (2026-09-04)**: `tests/scripts/Capture-Drawer.ps1` capture reviewed against `MediaPlayer.png`: blob artwork with dotted ring left, title/artist/album, seek with times, shuffle/previous/play pill/next/repeat, volume row, lyrics slot with "No lyrics found", player chooser pill. Controls were resized once (commit "fit media page controls") so all five transport buttons and the volume row fit in 720x300. Coordinator picks the playing test player over a paused Chrome; hook play/pause round-trips. Remaining M3 checklist items (livestream, advert metadata, two players paused+playing) are covered by the test player and Chrome sessions seen during the capture but not yet scripted.
 
 ### M4 Windows polish - `feat/foundation`
 1. Tokens done (M3); acrylic + opaque fallback and DWM corners: to do (corners done in M2).
@@ -48,8 +48,8 @@ Branch naming: `feat/<area>`, `fix/<area>`, `docs/<area>`. Every milestone ends 
 
 ### M5 Volume and settings - `feat/foundation`
 1. Done: `CoreAudioSessionProvider` (CsWin32 COM on its own dispatcher, default-device re-attach) + `AudioMatchPolicy` with tests; platform tests against the test player, which now opens a real render session.
-2. Volume row with confidence gating: to do (App).
-3. Done in Core: `Settings` records, `JsonSettingsStore` (atomic, .bak, corrupt recovery, sanitiser), `SettingsMigrator`, `ShortcutParser`. To do: wire into `DrawerHost`/hotkey/aliases, settings window, startup task.
+2. Done: volume row (mute glyph, slider, percentage, "shared" caption for Medium matches) shown only when the match is High, or Medium with `media.allowSharedVolume`; scroll wheel and Up/Down nudge by `media.volumeStepPercent`; M toggles mute; "Why is volume hidden?" in the lyrics overflow menu; diagnostics 11/12/13. Verified against the test player: High match, 25 % and mute round-trip in the log and the capture.
+3. Done: `Settings` records, `JsonSettingsStore`, `SettingsMigrator`, `ShortcutParser` (Core); wired into `DrawerHost` (live apply), hotkey from `drawer.toggleShortcut` (on the dev machine Win+Shift+M is owned by PowerToys, so it logs 1409 and disables), `SettingsWindow`, startup task toggle.
 - **Exit**: volume never moves an unrelated app; corrupt settings recover.
 
 ### M6 Package and release - `feat/packaging`
