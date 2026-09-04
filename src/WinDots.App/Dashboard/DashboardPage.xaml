@@ -1,0 +1,322 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="WinDots.App.Dashboard.DashboardPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:WinDots.App.Media.Controls"
+    Background="Transparent"
+    IsTabStop="False">
+
+    <!-- The Dashboard tab (Widgets.png): a weather card, a user card, a stacked clock, a month calendar, three resource
+         rings and a compact now-playing card. Every widget's numbers come from the committed Core/Dashboard models
+         (CalendarMonth, ClockModel, ResourceGauge, UptimeFormatter) fed by ISystemMetricsProvider and the shared
+         MediaViewModel; the calendar, clock and rings are built in code-behind so no per-frame allocation occurs. All
+         timers run only while this page is the active tab and the drawer is open (see SetActive). -->
+    <UserControl.Resources>
+        <Style x:Key="DashCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource WdSurfaceRaisedBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource WdOutlineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusLarge}" />
+            <Setter Property="Padding" Value="{StaticResource Space4}" />
+        </Style>
+
+        <Style x:Key="DashChevronStyle" TargetType="Button">
+            <Setter Property="Width" Value="30" />
+            <Setter Property="Height" Value="30" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusSmall}" />
+            <Setter Property="Foreground" Value="{ThemeResource WdOnSurfaceMutedBrush}" />
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Padding="{StaticResource Space4}" ColumnSpacing="16">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Left region: top band (weather + user) over a bottom band (clock + calendar + rings). -->
+        <Grid Grid.Column="0" RowSpacing="16">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- Top band -->
+            <Grid Grid.Row="0" ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Weather card (consent-gated placeholder; no network until a provider lands). -->
+                <Border Grid.Column="0" Style="{StaticResource DashCardStyle}" MinWidth="200">
+                    <StackPanel Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                        <FontIcon
+                            FontFamily="Segoe Fluent Icons"
+                            FontSize="40"
+                            Foreground="{ThemeResource WdOnSurfaceMutedBrush}"
+                            Glyph="&#xE753;" />
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock x:Name="WeatherPrimary" Style="{StaticResource WdSubtitleTextStyle}" Text="Weather off" />
+                            <TextBlock
+                                x:Name="WeatherSecondary"
+                                Style="{StaticResource WdCaptionTextStyle}"
+                                Foreground="{ThemeResource WdOnSurfaceMutedBrush}"
+                                Text="Location forecast is off" />
+                            <HyperlinkButton
+                                x:Name="WeatherEnableButton"
+                                Margin="0,2,0,0"
+                                Padding="0"
+                                Content="Enable"
+                                Click="OnEnableWeatherClick" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- User card: account picture, active player chip, uptime. -->
+                <Border Grid.Column="1" Style="{StaticResource DashCardStyle}">
+                    <Grid ColumnSpacing="14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <Grid Grid.Column="0" Width="56" Height="56" VerticalAlignment="Center">
+                            <Ellipse Fill="{ThemeResource WdSurfaceBrush}" />
+                            <FontIcon
+                                FontFamily="Segoe Fluent Icons"
+                                FontSize="26"
+                                Foreground="{ThemeResource WdOnSurfaceMutedBrush}"
+                                Glyph="&#xE77B;" />
+                            <Ellipse x:Name="AvatarEllipse" Visibility="Collapsed">
+                                <Ellipse.Fill>
+                                    <ImageBrush x:Name="AvatarBrush" Stretch="UniformToFill" />
+                                </Ellipse.Fill>
+                            </Ellipse>
+                        </Grid>
+
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="6">
+                            <TextBlock
+                                x:Name="UserName"
+                                Style="{StaticResource WdBodyTextStyle}"
+                                FontWeight="SemiBold"
+                                TextTrimming="CharacterEllipsis"
+                                Text="User" />
+                            <Border
+                                HorizontalAlignment="Left"
+                                Padding="10,4"
+                                Background="{ThemeResource WdSurfaceBrush}"
+                                BorderBrush="{ThemeResource WdOutlineBrush}"
+                                BorderThickness="1"
+                                CornerRadius="{StaticResource RadiusPill}">
+                                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                    <FontIcon
+                                        FontFamily="Segoe Fluent Icons"
+                                        FontSize="12"
+                                        Foreground="{x:Bind Media.AccentBrush, Mode=OneWay}"
+                                        Glyph="&#xEC4F;" />
+                                    <TextBlock
+                                        MaxWidth="180"
+                                        Style="{StaticResource WdCaptionTextStyle}"
+                                        TextTrimming="CharacterEllipsis"
+                                        Text="{x:Bind Media.ActiveChooserLabel, Mode=OneWay}" />
+                                </StackPanel>
+                            </Border>
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <FontIcon
+                                    FontFamily="Segoe Fluent Icons"
+                                    FontSize="13"
+                                    Foreground="{ThemeResource WdOnSurfaceMutedBrush}"
+                                    Glyph="&#xE121;" />
+                                <TextBlock
+                                    x:Name="UptimeText"
+                                    Style="{StaticResource WdCaptionTextStyle}"
+                                    Foreground="{ThemeResource WdOnSurfaceMutedBrush}"
+                                    Text="up less than a minute" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <!-- Bottom band -->
+            <Grid Grid.Row="1" ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Stacked clock -->
+                <Border Grid.Column="0" Style="{StaticResource DashCardStyle}" MinWidth="104">
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="2">
+                        <TextBlock
+                            x:Name="ClockHour"
+                            HorizontalAlignment="Center"
+                            FontFamily="{StaticResource WdFontFamily}"
+                            FontSize="44"
+                            FontWeight="SemiBold"
+                            Foreground="{ThemeResource WdOnSurfaceBrush}"
+                            Text="12" />
+                        <StackPanel HorizontalAlignment="Center" Spacing="3" Margin="0,4">
+                            <Ellipse Width="5" Height="5" Fill="{ThemeResource WdOnSurfaceMutedBrush}" />
+                            <Ellipse Width="5" Height="5" Fill="{ThemeResource WdOnSurfaceMutedBrush}" />
+                            <Ellipse Width="5" Height="5" Fill="{ThemeResource WdOnSurfaceMutedBrush}" />
+                        </StackPanel>
+                        <TextBlock
+                            x:Name="ClockMinute"
+                            HorizontalAlignment="Center"
+                            FontFamily="{StaticResource WdFontFamily}"
+                            FontSize="44"
+                            FontWeight="SemiBold"
+                            Foreground="{ThemeResource WdOnSurfaceBrush}"
+                            Text="00" />
+                        <TextBlock
+                            x:Name="ClockMeridiem"
+                            HorizontalAlignment="Center"
+                            FontFamily="{StaticResource WdFontFamily}"
+                            FontSize="16"
+                            FontWeight="SemiBold"
+                            Foreground="{x:Bind Media.AccentBrush, Mode=OneWay}"
+                            Text="AM" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Month calendar -->
+                <Border Grid.Column="1" Style="{StaticResource DashCardStyle}">
+                    <Grid RowSpacing="8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <Grid Grid.Row="0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Button
+                                Grid.Column="0"
+                                Style="{StaticResource DashChevronStyle}"
+                                AutomationProperties.Name="Previous month"
+                                Click="OnPreviousMonthClick">
+                                <FontIcon FontFamily="Segoe Fluent Icons" FontSize="12" Glyph="&#xE76B;" />
+                            </Button>
+                            <TextBlock
+                                x:Name="MonthTitle"
+                                Grid.Column="1"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Style="{StaticResource WdBodyTextStyle}"
+                                FontWeight="SemiBold"
+                                Text="Month" />
+                            <Button
+                                Grid.Column="2"
+                                Style="{StaticResource DashChevronStyle}"
+                                AutomationProperties.Name="Next month"
+                                Click="OnNextMonthClick">
+                                <FontIcon FontFamily="Segoe Fluent Icons" FontSize="12" Glyph="&#xE76C;" />
+                            </Button>
+                        </Grid>
+
+                        <Grid x:Name="CalendarGrid" Grid.Row="1" />
+                    </Grid>
+                </Border>
+
+                <!-- Resource rings (CPU / memory / disk) -->
+                <Border Grid.Column="2" Style="{StaticResource DashCardStyle}">
+                    <StackPanel
+                        x:Name="RingsPanel"
+                        VerticalAlignment="Center"
+                        HorizontalAlignment="Center"
+                        Spacing="10" />
+                </Border>
+            </Grid>
+        </Grid>
+
+        <!-- Mini now-playing card (right, full height). Read-through to the shared MediaViewModel. -->
+        <Border Grid.Column="1" Style="{StaticResource DashCardStyle}" Width="210">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="10">
+                <Grid Width="150" Height="150">
+                    <controls:DottedProgressRing
+                        Size="150"
+                        DotCount="52"
+                        DotDiameter="3"
+                        Progress="{x:Bind Media.Progress, Mode=OneWay}"
+                        AccentBrush="{x:Bind Media.AccentBrush, Mode=OneWay}"
+                        TrackBrush="{ThemeResource WdRingTrackBrush}" />
+                    <Ellipse Width="112" Height="112" Fill="{ThemeResource WdSurfaceBrush}" />
+                    <FontIcon
+                        FontFamily="Segoe Fluent Icons"
+                        FontSize="34"
+                        Foreground="{ThemeResource WdOnSurfaceMutedBrush}"
+                        Glyph="&#xEC4F;" />
+                    <Ellipse Width="112" Height="112">
+                        <Ellipse.Fill>
+                            <ImageBrush ImageSource="{x:Bind Media.Artwork, Mode=OneWay}" Stretch="UniformToFill" />
+                        </Ellipse.Fill>
+                    </Ellipse>
+                </Grid>
+
+                <StackPanel Spacing="1" HorizontalAlignment="Stretch">
+                    <TextBlock
+                        HorizontalAlignment="Center"
+                        Style="{StaticResource WdBodyTextStyle}"
+                        FontWeight="SemiBold"
+                        TextAlignment="Center"
+                        TextTrimming="CharacterEllipsis"
+                        MaxLines="1"
+                        Text="{x:Bind Media.Title, Mode=OneWay}" />
+                    <TextBlock
+                        HorizontalAlignment="Center"
+                        Style="{StaticResource WdCaptionTextStyle}"
+                        Foreground="{ThemeResource WdOnSurfaceMutedBrush}"
+                        TextAlignment="Center"
+                        TextTrimming="CharacterEllipsis"
+                        MaxLines="1"
+                        Text="{x:Bind Media.AlbumText, Mode=OneWay}" />
+                    <TextBlock
+                        HorizontalAlignment="Center"
+                        Style="{StaticResource WdCaptionTextStyle}"
+                        Foreground="{ThemeResource WdOnSurfaceMutedBrush}"
+                        TextAlignment="Center"
+                        TextTrimming="CharacterEllipsis"
+                        MaxLines="1"
+                        Text="{x:Bind Media.ArtistText, Mode=OneWay}" />
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                    <Button
+                        x:Name="MiniPrevButton"
+                        Style="{StaticResource WdTonalButtonStyle}"
+                        AutomationProperties.Name="Previous track"
+                        Click="OnMiniPreviousClick">
+                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE892;" FontSize="16" Foreground="{ThemeResource WdOnSurfaceBrush}" />
+                    </Button>
+                    <Button
+                        x:Name="MiniPlayButton"
+                        Width="60"
+                        Height="36"
+                        Style="{StaticResource WdAccentButtonStyle}"
+                        Background="{x:Bind Media.AccentBrush, Mode=OneWay}"
+                        AutomationProperties.Name="Play"
+                        Click="OnMiniPlayPauseClick">
+                        <FontIcon x:Name="MiniPlayGlyph" FontFamily="Segoe Fluent Icons" Glyph="&#xE768;" FontSize="18" Foreground="{x:Bind Media.OnAccentBrush, Mode=OneWay}" />
+                    </Button>
+                    <Button
+                        x:Name="MiniNextButton"
+                        Style="{StaticResource WdTonalButtonStyle}"
+                        AutomationProperties.Name="Next track"
+                        Click="OnMiniNextClick">
+                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE893;" FontSize="16" Foreground="{ThemeResource WdOnSurfaceBrush}" />
+                    </Button>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

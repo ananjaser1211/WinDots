@@ -19,6 +19,7 @@ using WinDots.Core.Settings;
 using WinDots.Core.Visualiser;
 using WinDots.Windows.AppIcons;
 using WinDots.Windows.Audio;
+using WinDots.Windows.Metrics;
 using WinDots.Windows.Security;
 
 namespace WinDots.App.Shell;
@@ -49,6 +50,7 @@ public sealed class DrawerHost
     private readonly LastFmService _lastFm;
     private readonly AppIconProvider _appIcons;
     private readonly MediaViewModel _viewModel;
+    private readonly ISystemMetricsProvider _metrics;
     private readonly DrawerWindow _drawer;
     private readonly List<HandleWindow> _handles = new();
     private readonly DispatcherQueueTimer _frameTimer;
@@ -89,6 +91,13 @@ public sealed class DrawerHost
     private double _reducedTo;
     private TimeSpan _reducedElapsed;
     private string _topologyKey = string.Empty;
+
+    // Per-tab height animation: when the drawer is open and the active tab changes, the revealed height eases from the
+    // old page's height to the new one over this duration on the shared frame timer (MinValue = inactive).
+    private static readonly TimeSpan HeightTweenDuration = TimeSpan.FromMilliseconds(180);
+    private double _heightTweenFrom;
+    private double _heightTweenTo;
+    private TimeSpan _heightTweenElapsed = TimeSpan.MinValue;
 
     public DrawerHost(IMediaSessionProvider provider, IAudioSessionProvider? audio, IMonitorService monitors, DispatcherQueue dispatcher, ISettingsStore settings)
     {
@@ -165,8 +174,12 @@ public sealed class DrawerHost
         _viewModel.VisualiserCaptureWantedChanged += OnVisualiserCaptureWantedChanged;
         RefreshVisualiser(current);
 
+        // Dashboard metrics provider (CPU/memory/disk, uptime, user). Constructed here and handed to the drawer so the
+        // Dashboard page can bind it; performs no disk writes and no network access.
+        _metrics = new SystemMetricsProvider();
+
         _activeMonitor = PickDefaultMonitor();
-        _drawer = new DrawerWindow(this, _viewModel);
+        _drawer = new DrawerWindow(this, _viewModel, _metrics, current.SelectedTab, current.Performance.ClampedSampleIntervalMs);
         _drawer.SetAlwaysOnTop(current.Drawer.AlwaysOnTop);
 
         // Artwork palette: the view-model reads the drawer's resolved theme and the palette settings, then derives
@@ -302,6 +315,73 @@ public sealed class DrawerHost
 
     /// <summary>The Last.fm runtime service, for the settings Last.fm page and the love controls.</summary>
     public LastFmService LastFm => _lastFm;
+
+    /// <summary>Whether the user has granted weather network consent (read by the Weather placeholder). No network here.</summary>
+    public bool WeatherConsentGranted => _settings.Current.Weather.ConsentGranted;
+
+    /// <summary>
+    /// Called by the Dashboard weather placeholder's Enable affordance: grants weather consent in settings. No network
+    /// is touched here; a future weather provider fetches only after this flips. No-op when consent is already granted.
+    /// </summary>
+    internal void RequestEnableWeather()
+    {
+        global::WinDots.Core.Settings.Settings current = _settings.Current;
+        if (current.Weather.ConsentGranted)
+        {
+            return;
+        }
+
+        ShellLog.Write("weather: consent granted from dashboard card");
+        _ = _settings.SaveAsync(current with { Weather = current.Weather with { ConsentGranted = true } }, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Called by the drawer when the selected tab changes. Persists the choice (unless <paramref name="persist"/> is
+    /// false, for a change that originated from settings) and, while the drawer is open, eases the revealed height to
+    /// the new page's design height.
+    /// </summary>
+    internal void OnTabSelected(DashboardTab tab, bool persist = true)
+    {
+        if (persist)
+        {
+            PersistSelectedTab(tab);
+        }
+
+        if (!_drawerShown || _controller.State != DrawerState.Open)
+        {
+            return;
+        }
+
+        double target = _drawer.DesignHeightForTab(tab);
+        if (Math.Abs(target - _drawer.HeightLogical) < 0.5)
+        {
+            return;
+        }
+
+        // Reduced motion (or an in-flight settle) snaps rather than eases.
+        if (_controller.Options.ReducedMotion)
+        {
+            _drawer.SetHeightLogical(target);
+            return;
+        }
+
+        _heightTweenFrom = _drawer.HeightLogical;
+        _heightTweenTo = target;
+        _heightTweenElapsed = TimeSpan.Zero;
+        _lastFrameTicks = Environment.TickCount64;
+        _frameTimer.Start();
+    }
+
+    private void PersistSelectedTab(DashboardTab tab)
+    {
+        global::WinDots.Core.Settings.Settings current = _settings.Current;
+        if (current.SelectedTab == tab)
+        {
+            return;
+        }
+
+        _ = _settings.SaveAsync(current with { SelectedTab = tab }, CancellationToken.None);
+    }
 
     private void OnCandidatesChangedForRegistry(object? sender, EventArgs e) =>
         _dispatcher.TryEnqueue(RecordSeenSources);
@@ -633,6 +713,7 @@ public sealed class DrawerHost
         var height = _drawer.HeightLogical;
         _spring.Start(_controller.Progress * height, velocityPxPerSecond, target * height);
         _reducedElapsed = TimeSpan.MinValue;
+        _heightTweenElapsed = TimeSpan.MinValue;
         _lastFrameTicks = Environment.TickCount64;
         _frameTimer.Start();
     }
@@ -642,6 +723,7 @@ public sealed class DrawerHost
         _reducedFrom = from;
         _reducedTo = to;
         _reducedElapsed = TimeSpan.Zero;
+        _heightTweenElapsed = TimeSpan.MinValue;
         _lastFrameTicks = Environment.TickCount64;
         _frameTimer.Start();
         if (thenActivate)
@@ -657,6 +739,22 @@ public sealed class DrawerHost
         var now = Environment.TickCount64;
         var elapsed = TimeSpan.FromMilliseconds(Math.Max(0, now - _lastFrameTicks));
         _lastFrameTicks = now;
+
+        if (_heightTweenElapsed != TimeSpan.MinValue)
+        {
+            _heightTweenElapsed += elapsed;
+            var t = Math.Clamp(_heightTweenElapsed / HeightTweenDuration, 0, 1);
+            // Ease-out cubic for a soft settle.
+            var eased = 1 - Math.Pow(1 - t, 3);
+            _drawer.SetHeightLogical(_heightTweenFrom + ((_heightTweenTo - _heightTweenFrom) * eased));
+            if (t >= 1)
+            {
+                _heightTweenElapsed = TimeSpan.MinValue;
+                _frameTimer.Stop();
+            }
+
+            return;
+        }
 
         if (_reducedElapsed != TimeSpan.MinValue)
         {
@@ -878,6 +976,11 @@ public sealed class DrawerHost
         RefreshVisualiser(s);
         _lastFm.ApplySettings(s.LastFm);
         _drawer.SetAlwaysOnTop(s.Drawer.AlwaysOnTop);
+
+        // A tab change made elsewhere (settings) syncs into the drawer; SelectTabExternally no-ops when unchanged.
+        _drawer.SelectTabExternally(s.SelectedTab);
+        _drawer.RefreshWeatherConsent(s.Weather.ConsentGranted);
+        _drawer.UpdateDashboardSampleInterval(s.Performance.ClampedSampleIntervalMs);
         ResetAutoHide();
 
         if (handlesNeedRebuild)

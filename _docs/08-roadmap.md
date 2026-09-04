@@ -62,9 +62,9 @@ Branch naming: `feat/<area>`, `fix/<area>`, `docs/<area>`. Every milestone ends 
 
 ## Phase B - Dashboard tab
 
-- **M7** Tab strip with two tabs, tab persistence, Ctrl+Tab.
-- **M8** Clock, calendar, user card, resource rings (performance counters, `performance.sampleIntervalMs`).
-- **M9** Mini media card reusing M3 components; weather card behind consent (ADR for provider).
+- **M7** Tab strip with two tabs, tab persistence, Ctrl+Tab. — BUILT (2026-09-05): four-tab strip (Dashboard/Media/Performance/Weather, `DrawerTabStrip`), `Settings.SelectedTab` persistence (default Media), Ctrl+Tab / Ctrl+Shift+Tab cycling, per-tab drawer sizing (Media area unchanged at 344 px + 72 px strip), ease-out height tween on tab switch. Performance/Weather are placeholder pages.
+- **M8** Clock, calendar, user card, resource rings (performance counters, `performance.sampleIntervalMs`). — BUILT (2026-09-05): `DashboardPage` widgets from the Core `Dashboard/` logic + `ISystemMetricsProvider`; stacked clock (1 s timer), month calendar (today highlighted, prev/next), user card (account picture + player chip + uptime), three 270° resource rings (CPU/mem/disk) sampled at `performance.ClampedSampleIntervalMs` off the UI thread; timers gated on drawer-open + Dashboard-visible.
+- **M9** Mini media card reusing M3 components; weather card behind consent (ADR for provider). — BUILT (2026-09-05): mini now-playing card reuses `DottedProgressRing` + transport bound to the shared `MediaViewModel`; weather card is a consent-gated placeholder (`WeatherSettings.ConsentGranted`, no provider yet — ADR pending). **Pending on-device verification** (workstation locked): confirm tab switching, dashboard widgets, live rings, and that the media reveal is unregressed.
 
 ## Phase C - Remaining tabs and integrations
 

@@ -30,7 +30,24 @@ public sealed partial class DrawerWindow : Window
     // Logical design size from _docs/03-ux-interaction-spec.md. Sized to comfortably fit the media page's artwork,
     // metadata, transport, volume row and lyrics column without crowding.
     public const double DesignWidth = 820;
-    public const double DesignHeight = 344;
+
+    // The tab strip sits on top of the active page; the drawer's total design height is TabStripHeight plus the active
+    // page's design height. The Media page keeps its historical 344 px so it looks and behaves exactly as before.
+    public const double TabStripHeight = 72;
+    private const double MediaPageHeight = 344;
+
+    // Default = Media (the landing tab): 72 (tabs) + 344 (media). Used as the gesture-math fallback height.
+    public const double DesignHeight = TabStripHeight + MediaPageHeight;
+
+    // Per-tab page (content, excluding the tab strip) design heights.
+    private static double PageDesignHeight(DashboardTab tab) => tab switch
+    {
+        DashboardTab.Media => MediaPageHeight,
+        DashboardTab.Dashboard => 486,
+        DashboardTab.Performance => 220,
+        DashboardTab.Weather => 220,
+        _ => MediaPageHeight,
+    };
 
     private readonly DrawerHost _host;
     private readonly MediaViewModel _viewModel;
@@ -39,12 +56,21 @@ public sealed partial class DrawerWindow : Window
 
     private double _scale = 1.0;
     private double _heightLogical = DesignHeight;
+    private double _workAreaHeightLogical = double.PositiveInfinity;
+    private DashboardTab _currentTab = DashboardTab.Media;
     private double _originYLogical;
     private int _x;
     private int _y;
     private int _widthPx;
     private bool _capturing;
     private bool _shown;
+
+    // Upward drag-to-close on the tab strip: only after the pointer moves up past this slop do we capture and begin
+    // feeding the controller, so a plain tap still activates a tab.
+    private const double DragSlop = 8;
+    private bool _stripPressed;
+    private bool _stripDragging;
+    private double _stripStartY;
 
     // Click-outside is armed only once the drawer has genuinely gained activation, so the transient
     // deactivation that can accompany opening from a global hotkey never dismisses it immediately.
@@ -59,12 +85,26 @@ public sealed partial class DrawerWindow : Window
     private bool _highContrast;
     private bool _acrylicActive;
 
-    public DrawerWindow(DrawerHost host, MediaViewModel viewModel)
+    public DrawerWindow(DrawerHost host, MediaViewModel viewModel, ISystemMetricsProvider metrics, DashboardTab initialTab, int sampleIntervalMs)
     {
         _host = host;
         _viewModel = viewModel;
         InitializeComponent();
         Page.Initialize(viewModel);
+
+        // Dashboard wiring: the page shares the metrics provider and the media view-model, so the mini media card and
+        // the Media tab read one source. The Enable affordance on the weather placeholder routes to the host (settings);
+        // the consent line is primed here and refreshed on settings changes via RefreshWeatherConsent.
+        DashPage.Initialize(metrics, viewModel, sampleIntervalMs);
+        DashPage.WeatherEnableRequested += (_, _) => _host.RequestEnableWeather();
+        DashPage.SetWeatherConsent(_host.WeatherConsentGranted);
+
+        // The tab strip uses the same per-artwork palette accent the media UI exposes (same brush instance, live-tinted).
+        TabStrip.AccentBrush = viewModel.AccentBrush;
+        TabStrip.SelectionChanged += OnTabStripSelectionChanged;
+        _currentTab = initialTab;
+        TabStrip.Selected = initialTab;
+        ApplyActivePage(initialTab);
 
         _hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         ConfigurePresenter();
@@ -79,13 +119,16 @@ public sealed partial class DrawerWindow : Window
             exClear: NativeInterop.WS_EX_APPWINDOW);
         NativeInterop.SetRoundedCorners(_hwnd);
 
+        _heightLogical = TabStripHeight + PageDesignHeight(initialTab);
         Root.Height = _heightLogical;
 
-        DragBand.PointerPressed += OnBandPressed;
-        DragBand.PointerMoved += OnBandMoved;
-        DragBand.PointerReleased += OnBandReleased;
-        DragBand.PointerCanceled += OnBandLost;
-        DragBand.PointerCaptureLost += OnBandLost;
+        // Drag-to-close lives on the tab strip. handledEventsToo:true so we still see the pointer even after a tab
+        // button marks the press handled; the movement threshold in the handlers keeps taps working.
+        TabStrip.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnBandPressed), handledEventsToo: true);
+        TabStrip.AddHandler(UIElement.PointerMovedEvent, new PointerEventHandler(OnBandMoved), handledEventsToo: true);
+        TabStrip.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler(OnBandReleased), handledEventsToo: true);
+        TabStrip.AddHandler(UIElement.PointerCanceledEvent, new PointerEventHandler(OnBandLost), handledEventsToo: true);
+        TabStrip.AddHandler(UIElement.PointerCaptureLostEvent, new PointerEventHandler(OnBandLost), handledEventsToo: true);
 
         // Escape closes when the drawer has focus; losing activation to another app is a click-outside dismiss.
         Root.KeyDown += OnRootKeyDown;
@@ -310,10 +353,11 @@ public sealed partial class DrawerWindow : Window
     {
         _scale = monitor.Scale;
         _originYLogical = (monitor.WorkArea.Y - monitor.Bounds.Y) / _scale;
+        _workAreaHeightLogical = monitor.WorkArea.Height / _scale;
 
-        // Spec geometry: clamp to 90 % of the work-area width and 60 % of its height.
+        // Spec geometry: clamp to 90 % of the work-area width and 60 % of its height. Height follows the active tab.
         var clampedWidthLogical = Math.Min(DesignWidth, (monitor.WorkArea.Width / _scale) * 0.9);
-        _heightLogical = Math.Min(DesignHeight, (monitor.WorkArea.Height / _scale) * 0.6);
+        _heightLogical = DesignHeightForTab(_currentTab);
         Root.Height = _heightLogical;
 
         _widthPx = (int)Math.Round(clampedWidthLogical * _scale);
@@ -333,6 +377,7 @@ public sealed partial class DrawerWindow : Window
             _shown = true;
             _viewModel.IsDrawerOpen = true;
             Page.SetDrawerVisible(true);
+            UpdateDashboardActive();
         }
     }
 
@@ -366,6 +411,7 @@ public sealed partial class DrawerWindow : Window
             _shown = false;
             _viewModel.IsDrawerOpen = false;
             Page.SetDrawerVisible(false);
+            UpdateDashboardActive();
         }
     }
 
@@ -384,29 +430,56 @@ public sealed partial class DrawerWindow : Window
             _clickOutsideArmed = true;
         }
 
-        // Initial keyboard focus lands on play/pause once the drawer has the foreground.
-        Page.FocusDefault();
+        // Initial keyboard focus lands on play/pause on the Media tab; elsewhere on the tab strip so Ctrl+Tab and
+        // arrow navigation have a starting point.
+        if (_currentTab == DashboardTab.Media)
+        {
+            Page.FocusDefault();
+        }
+        else if (!TabStrip.FocusSelected())
+        {
+            // The selected tab button could not take focus (rare); fall back to the media page's default so Escape /
+            // Ctrl+Tab still have a focused element to bubble from.
+            Page.FocusDefault();
+        }
     }
 
     private PointerSample ToSample(PointerRoutedEventArgs e)
     {
-        var point = e.GetCurrentPoint(DragBand);
+        var point = e.GetCurrentPoint(TabStrip);
         var y = _originYLogical + point.Position.Y;
         return new PointerSample(point.Position.X, y, TimeSpan.FromMicroseconds(point.Timestamp));
     }
 
+    // Pressing the strip does not immediately capture or start a drag; a tab click must still fire. Only when the
+    // pointer moves up past DragSlop do we capture and begin feeding the controller the close gesture.
     private void OnBandPressed(object sender, PointerRoutedEventArgs e)
     {
-        _capturing = DragBand.CapturePointer(e.Pointer);
-        _host.Controller.PointerDown(ToSample(e));
-        _host.OnDragSampleFed();
-        e.Handled = true;
+        _stripPressed = true;
+        _stripDragging = false;
+        _capturing = false;
+        _stripStartY = e.GetCurrentPoint(TabStrip).Position.Y;
     }
 
     private void OnBandMoved(object sender, PointerRoutedEventArgs e)
     {
-        if (!_capturing)
+        if (!_stripPressed)
         {
+            return;
+        }
+
+        if (!_stripDragging)
+        {
+            var y = e.GetCurrentPoint(TabStrip).Position.Y;
+            if (_stripStartY - y <= DragSlop)
+            {
+                return;
+            }
+
+            _stripDragging = true;
+            _capturing = TabStrip.CapturePointer(e.Pointer);
+            _host.Controller.PointerDown(ToSample(e));
+            _host.OnDragSampleFed();
             return;
         }
 
@@ -416,28 +489,119 @@ public sealed partial class DrawerWindow : Window
 
     private void OnBandReleased(object sender, PointerRoutedEventArgs e)
     {
-        if (!_capturing)
+        if (_stripDragging)
         {
-            return;
+            _host.Controller.PointerUp(ToSample(e));
+            TabStrip.ReleasePointerCaptures();
+            _host.OnDragSampleFed();
+            e.Handled = true;
         }
 
+        _stripPressed = false;
+        _stripDragging = false;
         _capturing = false;
-        _host.Controller.PointerUp(ToSample(e));
-        DragBand.ReleasePointerCaptures();
-        _host.OnDragSampleFed();
-        e.Handled = true;
     }
 
     private void OnBandLost(object sender, PointerRoutedEventArgs e)
     {
-        if (!_capturing)
+        if (_stripDragging)
+        {
+            _host.Controller.PointerUp(ToSample(e));
+            _host.OnDragSampleFed();
+        }
+
+        _stripPressed = false;
+        _stripDragging = false;
+        _capturing = false;
+    }
+
+    // --- Tab strip / per-tab sizing ---
+
+    /// <summary>The drawer's currently selected tab.</summary>
+    public DashboardTab CurrentTab => _currentTab;
+
+    /// <summary>
+    /// The full drawer design height for a tab: the fixed tab strip plus the page, where only the page portion is
+    /// clamped to 60 % of the work area. Clamping the page (not the strip + page) keeps the media area at its historical
+    /// 344 px on constrained/high-scale displays instead of shrinking it by the strip's 72 px.
+    /// </summary>
+    public double DesignHeightForTab(DashboardTab tab)
+    {
+        double pageCap = (_workAreaHeightLogical * 0.6) - TabStripHeight;
+        double page = double.IsFinite(pageCap) ? Math.Min(PageDesignHeight(tab), Math.Max(0, pageCap)) : PageDesignHeight(tab);
+        return TabStripHeight + page;
+    }
+
+    /// <summary>Sets the revealed design height and re-applies the current reveal so the window resizes to match.</summary>
+    public void SetHeightLogical(double heightLogical)
+    {
+        _heightLogical = heightLogical;
+        Root.Height = _heightLogical;
+        if (_shown)
+        {
+            ApplyProgress(Math.Clamp(_host.Controller.Progress, 0, 1));
+        }
+    }
+
+    // Shows only the selected tab's page, updates the weather consent line, and (while closed) snaps the height. While
+    // open the height is animated by the host, so it is left untouched here.
+    private void ApplyActivePage(DashboardTab tab)
+    {
+        Page.Visibility = tab == DashboardTab.Media ? Visibility.Visible : Visibility.Collapsed;
+        DashPage.Visibility = tab == DashboardTab.Dashboard ? Visibility.Visible : Visibility.Collapsed;
+        PerfPage.Visibility = tab == DashboardTab.Performance ? Visibility.Visible : Visibility.Collapsed;
+        WeatherPageView.Visibility = tab == DashboardTab.Weather ? Visibility.Visible : Visibility.Collapsed;
+
+        if (tab == DashboardTab.Weather)
+        {
+            WeatherPageView.SetConsent(_host.WeatherConsentGranted);
+        }
+
+        UpdateDashboardActive();
+
+        if (!_shown)
+        {
+            _heightLogical = DesignHeightForTab(tab);
+            Root.Height = _heightLogical;
+        }
+    }
+
+    /// <summary>Updates the Weather placeholder's consent line when the setting changes. No network access.</summary>
+    public void RefreshWeatherConsent(bool consentGranted)
+    {
+        DashPage.SetWeatherConsent(consentGranted);
+        if (_currentTab == DashboardTab.Weather)
+        {
+            WeatherPageView.SetConsent(consentGranted);
+        }
+    }
+
+    /// <summary>Forwards a live change to <c>performance.sampleIntervalMs</c> to the Dashboard's metrics sampler.</summary>
+    public void UpdateDashboardSampleInterval(int sampleIntervalMs) => DashPage.UpdateSampleInterval(sampleIntervalMs);
+
+    // The Dashboard's timers run only while its tab is active and the drawer is shown; this mirrors the media
+    // timeline timer's gating so nothing samples the system in the background.
+    private void UpdateDashboardActive() => DashPage.SetActive(_shown && _currentTab == DashboardTab.Dashboard);
+
+    private void OnTabStripSelectionChanged(object? sender, DashboardTab tab)
+    {
+        _currentTab = tab;
+        ApplyActivePage(tab);
+        _host.OnTabSelected(tab);
+    }
+
+    /// <summary>Applies a tab change originating outside the drawer (e.g. a settings sync). Does not re-persist.</summary>
+    public void SelectTabExternally(DashboardTab tab)
+    {
+        if (tab == _currentTab)
         {
             return;
         }
 
-        _capturing = false;
-        _host.Controller.PointerUp(ToSample(e));
-        _host.OnDragSampleFed();
+        _currentTab = tab;
+        TabStrip.Selected = tab;
+        ApplyActivePage(tab);
+        _host.OnTabSelected(tab, persist: false);
     }
 
     private void OnRootActivity(object sender, PointerRoutedEventArgs e) => _host.OnDrawerActivity();
@@ -449,8 +613,24 @@ public sealed partial class DrawerWindow : Window
         {
             _host.Controller.Dismiss(DismissReason.Escape);
             e.Handled = true;
+            return;
+        }
+
+        // Ctrl+Tab / Ctrl+Shift+Tab cycle tabs while the drawer is open (no global input; handled here).
+        if (e.Key == global::Windows.System.VirtualKey.Tab && IsCtrlDown())
+        {
+            TabStrip.CycleNext(backward: IsShiftDown());
+            e.Handled = true;
         }
     }
+
+    private static bool IsCtrlDown() => IsKeyDown(global::Windows.System.VirtualKey.Control);
+
+    private static bool IsShiftDown() => IsKeyDown(global::Windows.System.VirtualKey.Shift);
+
+    private static bool IsKeyDown(global::Windows.System.VirtualKey key) =>
+        Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(key)
+            .HasFlag(global::Windows.UI.Core.CoreVirtualKeyStates.Down);
 
     private void OnActivated(object sender, WindowActivatedEventArgs e)
     {

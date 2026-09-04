@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="WinDots.App.Shell.Pages.WeatherPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="Transparent"
+    IsTabStop="False">
+
+    <!-- Placeholder: the Weather tab is a network feature. Nothing is fetched until the user grants consent
+         (WeatherSettings.ConsentGranted); this page only reflects that state and the real UI lands later. No network. -->
+    <StackPanel
+        HorizontalAlignment="Center"
+        VerticalAlignment="Center"
+        Spacing="{StaticResource Space2}">
+        <FontIcon
+            HorizontalAlignment="Center"
+            FontFamily="Segoe Fluent Icons"
+            FontSize="28"
+            Foreground="{ThemeResource WdOnSurfaceMutedBrush}"
+            Glyph="&#xE753;" />
+        <TextBlock
+            HorizontalAlignment="Center"
+            Foreground="{ThemeResource WdOnSurfaceMutedBrush}"
+            Style="{StaticResource WdBodyTextStyle}"
+            Text="Weather — coming soon" />
+        <TextBlock
+            x:Name="ConsentLine"
+            HorizontalAlignment="Center"
+            MaxWidth="360"
+            Foreground="{ThemeResource WdOnSurfaceMutedBrush}"
+            Style="{StaticResource WdCaptionTextStyle}"
+            TextAlignment="Center"
+            TextWrapping="Wrap" />
+    </StackPanel>
+</UserControl>

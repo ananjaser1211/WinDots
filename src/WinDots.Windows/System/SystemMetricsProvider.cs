@@ -47,21 +47,29 @@ public sealed class SystemMetricsProvider : ISystemMetricsProvider
     public Task<SystemMetrics> GetSnapshotAsync(CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        try
+
+        // Run the sampling body on the thread pool: SampleDisk queries drive metadata (DriveInfo.IsReady/TotalSize/
+        // TotalFreeSpace), which must never run on the caller's UI thread. Task.Run also makes the returned task
+        // genuinely asynchronous so the caller's await actually yields.
+        return Task.Run(() =>
         {
-            var cpu = SampleCpu();
-            var (memFraction, totalMem, availMem) = SampleMemory();
-            var (diskFraction, totalDisk, freeDisk) = SampleDisk();
-            return Task.FromResult(new SystemMetrics(cpu, memFraction, diskFraction, totalMem, availMem, totalDisk, freeDisk));
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch
-        {
-            return Task.FromResult(SystemMetrics.Empty);
-        }
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var cpu = SampleCpu();
+                var (memFraction, totalMem, availMem) = SampleMemory();
+                var (diskFraction, totalDisk, freeDisk) = SampleDisk();
+                return new SystemMetrics(cpu, memFraction, diskFraction, totalMem, availMem, totalDisk, freeDisk);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                return SystemMetrics.Empty;
+            }
+        }, ct);
     }
 
     public TimeSpan GetUptime()
