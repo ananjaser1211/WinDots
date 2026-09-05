@@ -121,6 +121,15 @@ The JSON section key is `lastfm`. Credentials (API key/secret when the build has
 
 The DSP is in `WinDots.Core.Visualiser` (`AudioSpectrum`, `WaveformBuffer`, `AudioMixer`, `Fft`, `PcmConverter`, pure and unit-tested); `Settings.ToVisualiserOptions()` bridges this section to the runtime `VisualiserOptions`. Loopback audio is captured via `IAudioLoopbackCapture` (Core contract), implemented by `WinDots.Windows.Audio.WasapiLoopbackCapture` (WASAPI shared-mode loopback on the default render endpoint), and never written to disk. See `_docs/10-enhancement-plan.md` (E5).
 
+## `updates`
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `checkOnLaunch` | bool | `false` | Opt-in: run a background update check at launch, throttled to once per week. Nothing is fetched while off. |
+| `lastCheckUtc` | datetime? | `null` | UTC timestamp of the last completed check, used to throttle the weekly check. Written by the app, not user-editable. |
+
+The update check is a read-only, unauthenticated HTTPS GET of the GitHub releases API (`https://api.github.com/repos/AnanJaser1211/WinDots/releases/latest`); it compares the running package version against the latest release tag and, when newer, offers a link to the release page. No auto-download, no auto-install, no telemetry. The fetch abstraction (`IReleaseSource`) and comparison logic (`SemanticVersion`, `UpdateComparer`, `UpdateChecker`) live in `WinDots.Core.Updates` (BCL only, unit-tested); the HTTP implementation is `WinDots.Windows.Updates.GitHubReleaseSource`. See `_docs/10-enhancement-plan.md` (E7) and `_docs/privacy.md`.
+
 ## Later phases (present with defaults, ignored until the phase ships)
 
 | Section | Key | Default |

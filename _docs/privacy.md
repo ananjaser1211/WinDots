@@ -19,6 +19,7 @@ WinDots controls media locally. Nothing leaves the device unless an integration 
 | MusicBrainz | Track metadata for identifier lookup | none |
 | Spotify Web API | Track identifiers for like/playlist actions | OAuth PKCE tokens in Credential Manager |
 | Discord presence | Current track title/artist over the local Discord IPC pipe | none |
+| Update check | Nothing is sent about you: a read-only, unauthenticated HTTPS GET of `https://api.github.com/repos/AnanJaser1211/WinDots/releases/latest` (10 s timeout, 512 KB cap) to compare the running version against the latest release tag. Off by default; runs only when you press "Check for updates" or opt into the weekly launch check (`updates.checkOnLaunch`, throttled to once per week via `updates.lastCheckUtc`). No auto-download, no auto-install, no telemetry; a newer release only offers a link to its GitHub page. | none |
 
 Rules for every network feature: HTTPS only, timeouts, bounded response sizes, MIME validation for artwork, rate limits respected, redaction of tokens and titles in logs, retry with backoff, and a one-click purge of any queued data.
 

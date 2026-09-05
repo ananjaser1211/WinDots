@@ -44,6 +44,8 @@ public sealed record Settings
 
     public PerformanceSettings Performance { get; init; } = new();
 
+    public UpdatesSettings Updates { get; init; } = new();
+
     /// <summary>Unknown top-level keys/sections, preserved verbatim across a round-trip.</summary>
     [JsonExtensionData]
     public Dictionary<string, JsonElement> Extra { get; init; } = new(StringComparer.Ordinal);
@@ -313,6 +315,18 @@ public sealed record PerformanceSettings
     /// <summary>The configured interval clamped to <c>[<see cref="MinSampleIntervalMs"/>, <see cref="MaxSampleIntervalMs"/>]</c>.</summary>
     [JsonIgnore]
     public int ClampedSampleIntervalMs => Math.Clamp(SampleIntervalMs, MinSampleIntervalMs, MaxSampleIntervalMs);
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement> Extra { get; init; } = new(StringComparer.Ordinal);
+}
+
+public sealed record UpdatesSettings
+{
+    /// <summary>Opt-in: run an on-launch/weekly update check in the background. Off by default; nothing is fetched while off.</summary>
+    public bool CheckOnLaunch { get; init; }
+
+    /// <summary>UTC timestamp of the last completed check, used to throttle the opt-in check to once per week. Null until first run.</summary>
+    public DateTimeOffset? LastCheckUtc { get; init; }
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement> Extra { get; init; } = new(StringComparer.Ordinal);

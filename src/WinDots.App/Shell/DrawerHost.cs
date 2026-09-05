@@ -16,11 +16,13 @@ using WinDots.Core.Drawer;
 using WinDots.Core.Lyrics;
 using WinDots.Core.Media;
 using WinDots.Core.Settings;
+using WinDots.Core.Updates;
 using WinDots.Core.Visualiser;
 using WinDots.Windows.AppIcons;
 using WinDots.Windows.Audio;
 using WinDots.Windows.Metrics;
 using WinDots.Windows.Security;
+using WinDots.Windows.Updates;
 
 namespace WinDots.App.Shell;
 
@@ -48,6 +50,8 @@ public sealed class DrawerHost
     private readonly LyricsCache _lyricsCache;
     private readonly LyricsOffsetStore _lyricsOffsets;
     private readonly LastFmService _lastFm;
+    private readonly GitHubReleaseSource _releaseSource;
+    private readonly UpdateChecker _updateChecker;
     private readonly AppIconProvider _appIcons;
     private readonly MediaViewModel _viewModel;
     private readonly ISystemMetricsProvider _metrics;
@@ -157,6 +161,12 @@ public sealed class DrawerHost
         var scrobbleQueuePath = Path.Combine(ApplicationData.Current.LocalFolder.Path, "scrobble-queue.json");
         _lastFm = new LastFmService(new CredentialManagerSecretStore(), _httpHandler, _coordinator, _dispatcher, scrobbleQueuePath);
         _ = _lastFm.InitializeAsync(current.LastFm, CancellationToken.None);
+
+        // Update check (E7): a read-only, unauthenticated GET of the GitHub releases API over the shared handler.
+        // Nothing is fetched until the user presses "Check for updates" or opts into the weekly launch check below.
+        _releaseSource = new GitHubReleaseSource(_httpHandler, ShellLog.Write);
+        _updateChecker = new UpdateChecker(_releaseSource);
+        _ = MaybeRunLaunchUpdateCheckAsync();
 
         // Per-app chooser icons: resolves each player's real icon (package logo or executable icon) off the UI thread.
         _appIcons = new AppIconProvider();
@@ -315,6 +325,67 @@ public sealed class DrawerHost
 
     /// <summary>The Last.fm runtime service, for the settings Last.fm page and the love controls.</summary>
     public LastFmService LastFm => _lastFm;
+
+    /// <summary>The on-demand update checker (GitHub releases), for the settings Updates page. No network until invoked.</summary>
+    public IUpdateChecker Updates => _updateChecker;
+
+    /// <summary>The running package version as a <see cref="SemanticVersion"/>, for the update comparison.</summary>
+    public static SemanticVersion CurrentVersion
+    {
+        get
+        {
+            global::Windows.ApplicationModel.PackageVersion v = global::Windows.ApplicationModel.Package.Current.Id.Version;
+            return new SemanticVersion(v.Major, v.Minor, v.Build);
+        }
+    }
+
+    /// <summary>The last background (launch) update check result, surfaced non-intrusively by the settings window; null until one runs.</summary>
+    public UpdateResult? LastBackgroundUpdate { get; private set; }
+
+    /// <summary>
+    /// The opt-in weekly update check. Runs only when <c>updates.checkOnLaunch</c> is on and at least a week has passed
+    /// since <c>updates.lastCheckUtc</c>. Never blocks startup, never downloads or installs; it logs the outcome, records
+    /// the timestamp, and stashes the result for the settings window to show unobtrusively.
+    /// </summary>
+    private async Task MaybeRunLaunchUpdateCheckAsync()
+    {
+        UpdatesSettings updates = _settings.Current.Updates;
+        if (!updates.CheckOnLaunch)
+        {
+            return;
+        }
+
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        if (updates.LastCheckUtc is { } last && now - last < TimeSpan.FromDays(7))
+        {
+            return;
+        }
+
+        try
+        {
+            UpdateResult result = await _updateChecker.CheckAsync(CurrentVersion, CancellationToken.None).ConfigureAwait(true);
+            LastBackgroundUpdate = result;
+            ShellLog.Write(result.Status switch
+            {
+                UpdateStatus.UpdateAvailable => $"update: launch check found {result.LatestVersion}",
+                UpdateStatus.UpToDate => "update: launch check found no newer release",
+                _ => $"update: launch check failed ({result.Error})",
+            });
+
+            // Only record the timestamp for a completed check (up-to-date or available); a failure retries next launch.
+            if (result.Status != UpdateStatus.Error)
+            {
+                global::WinDots.Core.Settings.Settings current = _settings.Current;
+                await _settings.SaveAsync(
+                    current with { Updates = current.Updates with { LastCheckUtc = now } },
+                    CancellationToken.None).ConfigureAwait(true);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShellLog.Write($"update: launch check threw: {ex.GetType().Name}");
+        }
+    }
 
     /// <summary>Whether the user has granted weather network consent (read by the Weather placeholder). No network here.</summary>
     public bool WeatherConsentGranted => _settings.Current.Weather.ConsentGranted;
@@ -485,6 +556,7 @@ public sealed class DrawerHost
         _capture.Dispose();
         _sources.Save();
         _lastFm.Dispose();
+        _releaseSource.Dispose();
         _viewModel.Dispose();
         _coordinator.Dispose();
         _artworkCache.Dispose();

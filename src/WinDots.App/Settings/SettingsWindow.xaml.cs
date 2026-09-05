@@ -15,6 +15,7 @@ using WinDots.Core.Contracts;
 using WinDots.Core.Media;
 using WinDots.Core.Scrobbling;
 using WinDots.Core.Settings;
+using WinDots.Core.Updates;
 using WinDots.Core.Visualiser;
 using CoreSettings = WinDots.Core.Settings.Settings;
 
@@ -38,6 +39,9 @@ public sealed partial class SettingsWindow : Window
     private readonly SourceRegistry? _sources;
     private readonly LastFmService? _lastFm;
     private readonly WinDots.App.Shell.ShellMessageWindow? _shell;
+    private readonly IUpdateChecker? _updates;
+    private readonly SemanticVersion? _currentVersion;
+    private readonly UpdateResult? _launchUpdate;
     private readonly List<CheckBox> _monitorChecks = new();
     private readonly List<SourceRow> _sourceRows = new();
 
@@ -47,14 +51,26 @@ public sealed partial class SettingsWindow : Window
     private bool _loading;
     private StartupTask? _startupTask;
     private CancellationTokenSource? _signInCts;
+    private CancellationTokenSource? _updateCts;
 
-    public SettingsWindow(ISettingsStore store, IMonitorService? monitors, SourceRegistry? sources = null, LastFmService? lastFm = null, WinDots.App.Shell.ShellMessageWindow? shell = null)
+    public SettingsWindow(
+        ISettingsStore store,
+        IMonitorService? monitors,
+        SourceRegistry? sources = null,
+        LastFmService? lastFm = null,
+        WinDots.App.Shell.ShellMessageWindow? shell = null,
+        IUpdateChecker? updates = null,
+        SemanticVersion? currentVersion = null,
+        UpdateResult? launchUpdate = null)
     {
         _store = store;
         _monitors = monitors;
         _sources = sources;
         _lastFm = lastFm;
         _shell = shell;
+        _updates = updates;
+        _currentVersion = currentVersion;
+        _launchUpdate = launchUpdate;
         InitializeComponent();
 
         Title = "WinDots settings";
@@ -84,6 +100,7 @@ public sealed partial class SettingsWindow : Window
         }
 
         RefreshHotkeyConflict();
+        InitializeUpdatesUi();
 
         Closed += OnWindowClosed;
     }
@@ -103,11 +120,15 @@ public sealed partial class SettingsWindow : Window
         _signInCts?.Cancel();
         _signInCts?.Dispose();
         _signInCts = null;
+
+        _updateCts?.Cancel();
+        _updateCts?.Dispose();
+        _updateCts = null;
     }
 
     private static readonly string[] SectionTags =
     {
-        "Drawer", "Media", "Sources", "Lyrics", "LastFm", "Appearance", "Visualiser", "Monitors", "Privacy", "Diagnostics", "Startup",
+        "Drawer", "Media", "Sources", "Lyrics", "LastFm", "Appearance", "Visualiser", "Monitors", "Privacy", "Diagnostics", "Updates", "Startup",
     };
 
     private void OnSectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
@@ -127,6 +148,7 @@ public sealed partial class SettingsWindow : Window
         MonitorsSection.Visibility = Vis(tag == "Monitors");
         PrivacySection.Visibility = Vis(tag == "Privacy");
         DiagnosticsSection.Visibility = Vis(tag == "Diagnostics");
+        UpdatesSection.Visibility = Vis(tag == "Updates");
         StartupSection.Visibility = Vis(tag == "Startup");
     }
 
@@ -216,6 +238,8 @@ public sealed partial class SettingsWindow : Window
 
             LogLevel.SelectedIndex = (int)s.Diagnostics.LogLevel;
             IncludeMediaText.IsOn = s.Diagnostics.IncludeMediaText;
+
+            UpdatesCheckOnLaunch.IsOn = s.Updates.CheckOnLaunch;
 
             StatusText.Text = string.Empty;
         }
@@ -613,6 +637,10 @@ public sealed partial class SettingsWindow : Window
                 LogLevel = (LogLevel)Math.Max(0, LogLevel.SelectedIndex),
                 IncludeMediaText = IncludeMediaText.IsOn,
             },
+            Updates = current.Updates with
+            {
+                CheckOnLaunch = UpdatesCheckOnLaunch.IsOn,
+            },
         };
 
         SaveButton.IsEnabled = false;
@@ -837,5 +865,90 @@ public sealed partial class SettingsWindow : Window
         await _lastFm.SignOutAsync(CancellationToken.None);
         LastFmStatus.Text = "Signed out.";
         RefreshLastFmUi();
+    }
+
+    // ---- Updates (E7) ----
+
+    private void InitializeUpdatesUi()
+    {
+        UpdatesCurrentVersion.Text = _currentVersion is null
+            ? "Current version: unknown."
+            : $"Current version: {_currentVersion}.";
+
+        UpdatesCheckButton.IsEnabled = _updates is not null;
+        if (_updates is null)
+        {
+            UpdatesStatus.Text = "Update checks are unavailable.";
+            UpdatesStatus.Visibility = Visibility.Visible;
+            return;
+        }
+
+        // Show the unobtrusive result of the opt-in launch check, if one ran before this window opened.
+        if (_launchUpdate is not null)
+        {
+            RenderUpdateResult(_launchUpdate);
+        }
+    }
+
+    private async void OnCheckForUpdates(object sender, RoutedEventArgs e)
+    {
+        if (_updates is null || _currentVersion is null || _updateCts is not null)
+        {
+            return;
+        }
+
+        UpdatesReleaseLink.Visibility = Visibility.Collapsed;
+        UpdatesStatus.Text = "Checking for updates…";
+        UpdatesStatus.Visibility = Visibility.Visible;
+        UpdatesProgress.Visibility = Visibility.Visible;
+        UpdatesProgress.IsActive = true;
+        UpdatesCheckButton.IsEnabled = false;
+
+        _updateCts = new CancellationTokenSource();
+        try
+        {
+            UpdateResult result = await _updates.CheckAsync(_currentVersion, _updateCts.Token);
+            RenderUpdateResult(result);
+        }
+        catch (OperationCanceledException)
+        {
+            UpdatesStatus.Text = "Update check cancelled.";
+        }
+        finally
+        {
+            UpdatesProgress.IsActive = false;
+            UpdatesProgress.Visibility = Visibility.Collapsed;
+            UpdatesCheckButton.IsEnabled = true;
+            _updateCts?.Dispose();
+            _updateCts = null;
+        }
+    }
+
+    private void RenderUpdateResult(UpdateResult result)
+    {
+        UpdatesStatus.Visibility = Visibility.Visible;
+        switch (result.Status)
+        {
+            case UpdateStatus.UpdateAvailable:
+                UpdatesStatus.Text = $"A new version {result.LatestVersion} is available.";
+                if (!string.IsNullOrEmpty(result.ReleaseUrl) &&
+                    Uri.TryCreate(result.ReleaseUrl, UriKind.Absolute, out Uri? release))
+                {
+                    UpdatesReleaseLink.NavigateUri = release;
+                    UpdatesReleaseLink.Visibility = Visibility.Visible;
+                }
+
+                break;
+
+            case UpdateStatus.UpToDate:
+                UpdatesStatus.Text = "You're on the latest version.";
+                UpdatesReleaseLink.Visibility = Visibility.Collapsed;
+                break;
+
+            default:
+                UpdatesStatus.Text = $"Could not check for updates: {result.Error}";
+                UpdatesReleaseLink.Visibility = Visibility.Collapsed;
+                break;
+        }
     }
 }

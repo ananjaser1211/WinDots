@@ -32,6 +32,7 @@
                 <muxc:NavigationViewItem Content="Monitors" Tag="Monitors" />
                 <muxc:NavigationViewItem Content="Privacy" Tag="Privacy" />
                 <muxc:NavigationViewItem Content="Diagnostics" Tag="Diagnostics" />
+                <muxc:NavigationViewItem Content="Updates" Tag="Updates" />
                 <muxc:NavigationViewItem Content="Startup" Tag="Startup" />
             </muxc:NavigationView.MenuItems>
 
@@ -253,6 +254,22 @@
                             <Button x:Name="ExportDiagnostics" Content="Export diagnostics" IsEnabled="False" AutomationProperties.Name="Export diagnostics" />
                         </StackPanel>
                         <TextBlock Text="Export is a placeholder until the packaging milestone." Style="{StaticResource CaptionTextBlockStyle}" />
+                    </StackPanel>
+
+                    <!-- Updates -->
+                    <StackPanel x:Name="UpdatesSection" Spacing="16" Visibility="Collapsed">
+                        <TextBlock Text="Updates" Style="{StaticResource TitleTextBlockStyle}" />
+                        <TextBlock x:Name="UpdatesCurrentVersion" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <StackPanel Spacing="4">
+                            <ToggleSwitch x:Name="UpdatesCheckOnLaunch" Header="Check for updates automatically" AutomationProperties.Name="Check for updates automatically" />
+                            <TextBlock Text="When on, WinDots checks GitHub for a newer release at most once a week (an HTTPS GET to api.github.com; no account, no telemetry, no automatic download). It never installs anything: found updates only offer a link to the release page." Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <Button x:Name="UpdatesCheckButton" Content="Check for updates" Click="OnCheckForUpdates" AutomationProperties.Name="Check for updates now" />
+                            <muxc:ProgressRing x:Name="UpdatesProgress" IsActive="False" Width="20" Height="20" Visibility="Collapsed" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <TextBlock x:Name="UpdatesStatus" Style="{StaticResource BodyTextBlockStyle}" TextWrapping="Wrap" Visibility="Collapsed" />
+                        <HyperlinkButton x:Name="UpdatesReleaseLink" Content="View release" Visibility="Collapsed" AutomationProperties.Name="View the release on GitHub" />
                     </StackPanel>
 
                     <!-- Startup -->
