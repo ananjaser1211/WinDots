@@ -22,8 +22,7 @@
             </VisualStateGroup>
         </VisualStateManager.VisualStateGroups>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
+            <!-- The drawer's shared tab strip (DrawerTabStrip) sits above this page; the media body fills the page. -->
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -32,7 +31,6 @@
         <Canvas
             x:Name="BlobCanvas"
             Grid.Row="0"
-            Grid.RowSpan="3"
             IsHitTestVisible="False">
             <Ellipse
                 x:Name="Blob1"
@@ -60,44 +58,11 @@
                 Fill="{x:Bind ViewModel.BlobTintBrush}" />
         </Canvas>
 
-        <!-- Tab strip: a single "Media" tab (glyph + accent label + short accent underline). -->
-        <Grid Grid.Row="0" Padding="24,6,24,4" HorizontalAlignment="Stretch">
-            <Button
-                x:Name="MediaTab"
-                HorizontalAlignment="Center"
-                Padding="12,2"
-                BorderThickness="0"
-                Background="Transparent"
-                AutomationProperties.Name="Media tab">
-                <StackPanel Orientation="Vertical" HorizontalAlignment="Center" Spacing="2">
-                    <FontIcon
-                        Glyph="&#xE8D6;"
-                        FontSize="16"
-                        HorizontalAlignment="Center"
-                        Foreground="{x:Bind ViewModel.AccentBrush}" />
-                    <TextBlock
-                        Text="Media"
-                        HorizontalAlignment="Center"
-                        Style="{StaticResource WdCaptionTextStyle}"
-                        Foreground="{x:Bind ViewModel.AccentBrush}" />
-                    <Border
-                        Width="28"
-                        Height="2"
-                        Margin="0,2,0,0"
-                        CornerRadius="{StaticResource RadiusPill}"
-                        Background="{x:Bind ViewModel.AccentBrush}" />
-                </StackPanel>
-            </Button>
-        </Grid>
-
-        <!-- Thin divider under the tab strip. -->
-        <Border Grid.Row="1" Height="1" Background="{ThemeResource WdOutlineBrush}" />
-
         <!-- Body: three columns (artwork, metadata + transport, lyrics + chooser) in a single star-height row so the
              body exactly fills the drawer. The lyrics column is therefore height-bounded and its own list scrolls
              internally instead of growing the body and shifting the artwork/metadata. At >150% text scale or a narrow
              width the lyrics column collapses (LayoutStates, driven from EvaluateLayout). -->
-        <Grid Grid.Row="2" x:Name="BodyGrid" Margin="20,10,20,14" ColumnSpacing="18">
+        <Grid Grid.Row="0" x:Name="BodyGrid" Margin="20,10,20,14" ColumnSpacing="18">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />

@@ -18,7 +18,7 @@
             <Setter Property="BorderBrush" Value="{ThemeResource WdOutlineBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="{StaticResource RadiusLarge}" />
-            <Setter Property="Padding" Value="{StaticResource Space4}" />
+            <Setter Property="Padding" Value="16" />
         </Style>
 
         <Style x:Key="DashChevronStyle" TargetType="Button">
@@ -32,7 +32,7 @@
         </Style>
     </UserControl.Resources>
 
-    <Grid Padding="{StaticResource Space4}" ColumnSpacing="16">
+    <Grid Padding="16" ColumnSpacing="16">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
             <ColumnDefinition Width="Auto" />
